@@ -1,0 +1,76 @@
+<div id="stepthink_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Stepped Thinking</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div class="flex-container marginTopBot5">
+                <label class="checkbox_label expander" for="stepthink_is_enabled">
+                    <input id="stepthink_is_enabled" type="checkbox"/>
+                    Enable Stepped Thinking
+                </label>
+            </div>
+
+            <hr/>
+
+            <div class="flex-container justifySpaceBetween alignItemsCenter">
+                Prompts for thinking:
+                <div id="stepthink_prompt_list_add" class="menu_button menu_button_icon fa-solid fa-plus"
+                     title="Add prompt"></div>
+            </div>
+
+            <div id="stepthink_prompt_list"></div>
+
+            <hr/>
+
+            <div class="flex-container marginTopBot5">
+                <label class="checkbox_label expander" for="stepthink_is_thoughts_spoiler_open"
+                       title="Whether spoilers will be open or closed in new messages. It doesn't affect existing ones">
+                    <input id="stepthink_is_thoughts_spoiler_open" type="checkbox"/>
+                    Thought spoilers are open by default
+                </label>
+            </div>
+
+            <div class="flex-container marginTopBot5">
+                <label class="checkbox_label expander" for="stepthink_is_thinking_popups_enabled"
+                       title="Whether popups notifying about the progress of thinking will be shown">
+                    <input id="stepthink_is_thinking_popups_enabled" type="checkbox"/>
+                    Enable popups when a character is thinking
+                </label>
+            </div>
+
+            <div class="flex-container marginTopBot5">
+                <div class="flex-container flex1"
+                     title="The number of a character's last messages with thoughts that will be included in the generation prompt">
+                    <label for="stepthink_max_thoughts_in_prompt">
+                        Number of included thoughts for a character:
+                    </label>
+                    <input type="number" id="stepthink_max_thoughts_in_prompt" class="text_pole" min="0"/>
+                </div>
+            </div>
+
+            <div class="flex-container marginTopBot5">
+                <div class="flex-container flex1"
+                     title="Often, there are special symbols and other shiza in the generation output; it will be removed by the regexp">
+                    <label for="stepthink_regexp_to_sanitize">
+                        Regexp to sanitize thoughts:
+                    </label>
+                    <input type="text" id="stepthink_regexp_to_sanitize" class="text_pole textarea_compact"/>
+                </div>
+            </div>
+
+            <div class="flex-container justifySpaceBetween alignItemsCenter">
+                <label for="stepthink_excluded_characters"
+                       title="Do you want to exclude your narrator or anyone else from the thinking process? This option is for you. Also, pay attention that characters are identified by their names">
+                    Characters with disabled thinking:
+                </label>
+                <div id="stepthink_load_characters" class="menu_button menu_button_icon fa-solid fa-undo"
+                     title="Reload characters list"></div>
+                <select id="stepthink_excluded_characters" class="select2_multi_sameline" multiple="multiple"></select>
+            </div>
+
+            <hr class="sysHR"/>
+        </div>
+    </div>
+</div>

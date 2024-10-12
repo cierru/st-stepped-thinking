@@ -1,0 +1,5 @@
+#stepthink_prompt_list textarea {
+    flex: 1 1 75%;
+    font-size: calc(var(--mainFontSize) * 0.9);
+    line-height: 1.2;
+}
