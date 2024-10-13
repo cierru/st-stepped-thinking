@@ -344,7 +344,7 @@ async function onGroupMemberDrafted() {
     if (isGenerationStopped) {
         return;
     }
-    if (generationType && generationType !== 'group_chat') {
+    if (generationType && generationType !== 'normal' && generationType !== 'group_chat') {
         return;
     }
 
