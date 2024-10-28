@@ -30,23 +30,26 @@ async function loadSettings() {
             extension_settings[extensionName],
             defaultCommonSettings,
             defaultThinkingPromptSettings,
-            defaultExcludedCharacterSettings,
+            defaultSpecificCharactersSettings,
         );
     }
     settings = extension_settings[extensionName];
 
     loadCommonSettings();
     loadThinkingPromptSettings();
-    loadExcludedCharacterSettings();
+    loadSpecificCharacterSettings();
 }
 
 // settings - common
 
 export const defaultCommonSettings = {
     'is_enabled': true,
+    'is_wian_skipped': false,
     'is_thinking_popups_enabled': true,
     'is_thoughts_spoiler_open': false,
     'max_thoughts_in_prompt': 2,
+    'generation_delay': 0.0,
+    'max_response_length': 0,
     'regexp_to_sanitize': '(<\\/?details\\s?(type="executing")?>)|(<\\/?summary>)|(Thinking ({{char}}) 💭)|(```)',
 
     // Not in UI, since the settings are unlikely to be changed
@@ -63,7 +66,10 @@ export const defaultCommonSettings = {
 export function loadCommonSettings() {
     $('#stepthink_regexp_to_sanitize').val(settings.regexp_to_sanitize);
     $('#stepthink_max_thoughts_in_prompt').val(settings.max_thoughts_in_prompt);
+    $('#stepthink_max_response_length').val(settings.max_response_length);
+    $('#stepthink_generation_delay').val(settings.generation_delay);
     $('#stepthink_is_enabled').prop('checked', settings.is_enabled).trigger('input');
+    $('#stepthink_is_wian_skipped').prop('checked', settings.is_wian_skipped).trigger('input');
     $('#stepthink_is_thoughts_spoiler_open').prop('checked', settings.is_thoughts_spoiler_open).trigger('input');
     $('#stepthink_is_thinking_popups_enabled').prop('checked', settings.is_thinking_popups_enabled).trigger('input');
 }
@@ -72,35 +78,46 @@ export function loadCommonSettings() {
  * @return {void}
  */
 export function registerCommonSettingListeners() {
-    $('#stepthink_is_enabled').on('input', onIsEnabledInput);
-    $('#stepthink_is_thoughts_spoiler_open').on('input', onIsThoughtsSpoilerOpenInput);
-    $('#stepthink_is_thinking_popups_enabled').on('input', onIsThinkingPopupsEnabledInput);
+    $('#stepthink_is_enabled').on('input', onCheckboxInput('is_enabled'));
+    $('#stepthink_is_wian_skipped').on('input', onCheckboxInput('is_wian_skipped'));
+    $('#stepthink_is_thoughts_spoiler_open').on('input', onCheckboxInput('is_thoughts_spoiler_open'));
+    $('#stepthink_is_thinking_popups_enabled').on('input', onCheckboxInput('is_thinking_popups_enabled'));
     $('#stepthink_regexp_to_sanitize').on('input', onRegexpToSanitizeChanged);
-    $('#stepthink_max_thoughts_in_prompt').on('input', onMaxThoughtsInPromptInput);
+    $('#stepthink_max_thoughts_in_prompt').on('input', onIntegerTextareaInput('max_thoughts_in_prompt'));
+    $('#stepthink_max_response_length').on('input', onIntegerTextareaInput('max_response_length'));
+    $('#stepthink_generation_delay').on('input', onGenerationDelayInput);
+
+    $('#stepthink_additional_settings_toggle').on('click', () => $('#stepthink_additional_settings').slideToggle(200, 'swing'));
+    $('#stepthink_restore_regexp_to_sanitize').on('click', () =>
+        $('#stepthink_regexp_to_sanitize').val(defaultCommonSettings.regexp_to_sanitize).trigger('input')
+    );
 }
 
 /**
- * @return {void}
+ * @param {string} settingName
+ * @return {(function(): void)}
  */
-function onIsEnabledInput() {
-    settings.is_enabled = Boolean($(this).prop('checked'));
-    saveSettingsDebounced();
+function onCheckboxInput(settingName) {
+    return function () {
+        settings[settingName] = Boolean($(this).prop('checked'));
+        saveSettingsDebounced();
+    };
 }
 
 /**
- * @return {void}
+ * @param {string} settingName
+ * @return {(function(): void)}
  */
-function onIsThoughtsSpoilerOpenInput() {
-    settings.is_thoughts_spoiler_open = Boolean($(this).prop('checked'));
-    saveSettingsDebounced();
-}
+function onIntegerTextareaInput(settingName) {
+    return function () {
+        const value = Number($(this).val());
+        if (!Number.isInteger(value) || value < 0) {
+            return;
+        }
 
-/**
- * @return {void}
- */
-function onIsThinkingPopupsEnabledInput() {
-    settings.is_thinking_popups_enabled = Boolean($(this).prop('checked'));
-    saveSettingsDebounced();
+        settings[settingName] = value;
+        saveSettingsDebounced();
+    };
 }
 
 /**
@@ -114,43 +131,53 @@ function onRegexpToSanitizeChanged() {
 /**
  * @return {void}
  */
-function onMaxThoughtsInPromptInput() {
-    const value = Number($(this).val());
-    if (!Number.isInteger(value) || value < 0) {
+function onGenerationDelayInput() {
+    const value = parseFloat($(this).val());
+    if (isNaN(value) || value < 0.0) {
         return;
     }
 
-    settings.max_thoughts_in_prompt = value;
+    settings.generation_delay = value;
     saveSettingsDebounced();
 }
 
-// settings - excluded_characters
+// settings - specific_characters
 
-export const defaultExcludedCharacterSettings = {
+export const defaultSpecificCharactersSettings = {
     'excluded_characters': [],
+    'mind_reader_characters': [],
 };
 
 /**
  * @return {void}
  */
-export function loadExcludedCharacterSettings() {
+export function loadSpecificCharacterSettings() {
     // don't need so far, it's here to preserve the structure of each settings file
 }
 
 /**
  * @return {void}
  */
-export function registerExcludedCharacterListeners() {
+export function registerSpecificCharacterListeners() {
     const excludedCharacters = $('#stepthink_excluded_characters');
-
     excludedCharacters.select2({
         width: '100%',
         placeholder: 'No characters chosen. Click here to select.',
         allowClear: true,
         closeOnSelect: false,
     });
-    excludedCharacters.on('change', onExcludedCharactersChange);
-    $('#stepthink_load_characters').on('click', onLoadCharacters);
+    excludedCharacters.on('change', onSpecificCharactersChange('excluded_characters'));
+
+    const mindReaderCharacters = $('#stepthink_mind_reader_characters');
+    mindReaderCharacters.select2({
+            width: '100%',
+            placeholder: 'No characters chosen. Click here to select.',
+            allowClear: true,
+            closeOnSelect: false,
+    });
+    mindReaderCharacters.on('change', onSpecificCharactersChange('mind_reader_characters'));
+
+    $('.stepthink_load_characters').on('click', onLoadCharacters);
 
     eventSource.on(event_types.APP_READY, onLoadCharacters);
 }
@@ -162,27 +189,44 @@ export function registerExcludedCharacterListeners() {
  */
 function onLoadCharacters() {
     const excludedCharacters = $('#stepthink_excluded_characters');
+    const mindReaderCharacters = $('#stepthink_mind_reader_characters');
 
     excludedCharacters.empty();
-    getContext().characters.forEach((character) => {
-        const characterOption = document.createElement('option');
-        characterOption.setAttribute('value', character.name);
-        if (settings.excluded_characters.includes(character.name)) {
-            characterOption.selected = true;
-        }
-        characterOption.textContent = character.name;
+    mindReaderCharacters.empty();
 
-        excludedCharacters.append(characterOption);
+    getContext().characters.forEach((character) => {
+        excludedCharacters.append(createSpecificCharacterOption(character, settings.excluded_characters));
+        mindReaderCharacters.append(createSpecificCharacterOption(character, settings.mind_reader_characters));
     });
 }
 
 /**
- * @param {object} event
+ * @param {v1CharData} character
+ * @param {string[]} selections
+ * @return {HTMLOptionElement}
  */
-function onExcludedCharactersChange(event) {
-    const selectedOptions = Array.from(event.target.selectedOptions);
-    settings.excluded_characters = selectedOptions.map(selectedOption => selectedOption.value);
-    saveSettingsDebounced();
+function createSpecificCharacterOption(character, selections = []) {
+    const characterOption = document.createElement('option');
+    characterOption.setAttribute('value', character.name);
+
+    if (selections.includes(character.name)) {
+        characterOption.selected = true;
+    }
+    characterOption.textContent = character.name;
+
+    return characterOption;
+}
+
+/**
+ * @param {string} settingName
+ * @return {(function(*): void)}
+ */
+function onSpecificCharactersChange(settingName) {
+    return function (event) {
+        const selectedOptions = Array.from(event.target.selectedOptions);
+        settings[settingName] = selectedOptions.map(selectedOption => selectedOption.value);
+        saveSettingsDebounced();
+    }
 }
 
 // settings - prompts
@@ -201,6 +245,7 @@ export const defaultThinkingPromptSettings = {
             '"I know Adam loves me, but why does he spend so much time with Eve?"\n' +
             '- I want to ask Adam directly, but I am afraid to hear a lie.\n' +
             '- Maybe I am just too hypocritical?',
+        'is_enabled': true,
     }, {
         'id': 1,
         'prompt': 'Pause your roleplay. Describe {{char}}\'s plans at the current moment.\n' + '\n' +
@@ -214,6 +259,7 @@ export const defaultThinkingPromptSettings = {
             '2. Look for an excuse to make a scene of jealousy.\n' +
             '3. Try to hurt Eve to make her lose her temper.\n' +
             '4. In the end, try to get Adam\'s attention back to myself.',
+        'is_enabled': true,
     }],
 };
 
@@ -222,7 +268,7 @@ export const defaultThinkingPromptSettings = {
  */
 export function loadThinkingPromptSettings() {
     settings.thinking_prompts.forEach((item) => {
-        renderThinkingPromptAt(item.id, item?.prompt);
+        renderThinkingPromptAt(item.id, item?.prompt, item?.is_enabled);
     });
 }
 
@@ -236,8 +282,9 @@ export function registerThinkingPromptListeners() {
 /**
  * @param {number} id
  * @param {string} prompt
+ * @param {boolean} is_enabled
  */
-function renderThinkingPromptAt(id, prompt = '') {
+function renderThinkingPromptAt(id, prompt = '', is_enabled = true) {
     const textArea = document.createElement('textarea');
     textArea.setAttribute('id', 'stepthink_prompt_text--' + id);
     textArea.setAttribute('data-id', String(id));
@@ -248,6 +295,19 @@ function renderThinkingPromptAt(id, prompt = '') {
     }
     textArea.addEventListener('input', onPromptItemInput);
 
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.classList.add('flex-container', 'alignItemsCenter', 'flexFlowColumn');
+
+    const isEnabledButton = document.createElement('input');
+    isEnabledButton.setAttribute('id', 'stepthink_prompt_enabled--' + id);
+    isEnabledButton.setAttribute('data-id', String(id));
+    isEnabledButton.setAttribute('type', 'checkbox');
+    isEnabledButton.setAttribute('title', 'Enable prompt');
+    if (is_enabled !== false) {
+        isEnabledButton.setAttribute('checked', 'checked');
+    }
+    isEnabledButton.addEventListener('input', onPromptItemEnable);
+
     const removeButton = document.createElement('div');
     removeButton.setAttribute('id', 'stepthink_prompt_remove--' + id);
     removeButton.setAttribute('data-id', String(id));
@@ -255,11 +315,13 @@ function renderThinkingPromptAt(id, prompt = '') {
     removeButton.classList.add('menu_button', 'menu_button_icon', 'fa-solid', 'fa-trash', 'redWarningBG');
     removeButton.addEventListener('click', onPromptItemRemove);
 
+    buttonsContainer.append(isEnabledButton, removeButton);
+
     const listItem = document.createElement('div');
     listItem.setAttribute('id', 'stepthink_prompt_item--' + id);
     listItem.classList.add('flex-container', 'marginTopBot5', 'alignItemsCenter');
 
-    listItem.append(textArea, removeButton);
+    listItem.append(textArea, buttonsContainer);
 
     $('#stepthink_prompt_list').append(listItem);
 }
@@ -286,6 +348,19 @@ function onPromptItemInput(event) {
     const value = $('#stepthink_prompt_text--' + id).val();
     const changedPrompt = settings.thinking_prompts.find(item => item.id === id);
     changedPrompt.prompt = value;
+    saveSettingsDebounced();
+}
+
+
+/**
+ * @param {InputEvent} event
+ */
+function onPromptItemEnable(event) {
+    const id = Number(event.target.getAttribute('data-id'));
+
+    const value = $('#stepthink_prompt_enabled--' + id).prop('checked');
+    const changedPrompt = settings.thinking_prompts.find(item => item.id === id);
+    changedPrompt.is_enabled = value;
     saveSettingsDebounced();
 }
 
@@ -329,9 +404,6 @@ async function onGenerationAfterCommands(type) {
     generationType = type;
     isGenerationStopped = false;
 
-    if (!settings.is_enabled || isThinking) {
-        return;
-    }
     if (getContext().groupId) {
         return;
     }
@@ -339,16 +411,14 @@ async function onGenerationAfterCommands(type) {
         return;
     }
 
-    await runThinking($('#send_textarea'));
+    await runChatThinking();
+
 }
 
 /**
  * @returns {Promise<void>}
  */
 async function onGroupMemberDrafted() {
-    if (!settings.is_enabled || isThinking) {
-        return;
-    }
     if (isGenerationStopped) {
         return;
     }
@@ -356,7 +426,7 @@ async function onGroupMemberDrafted() {
         return;
     }
 
-    await runThinking($('#send_textarea'));
+    await runChatThinking();
 }
 
 /**
@@ -365,6 +435,31 @@ async function onGroupMemberDrafted() {
 async function onGenerationStopped() {
     isGenerationStopped = true;
     stopThinking($('#send_textarea'));
+}
+
+/**
+ * @returns {Promise<void>}
+ */
+async function runChatThinking() {
+    if (isThinking || !settings.is_enabled) {
+        return;
+    }
+    if (isThinkingSkipped()) {
+        await hideThoughts();
+        return;
+    }
+
+    await runThinking($('#send_textarea'));
+    await generationDelay();
+}
+
+/**
+ * @return {boolean}
+ */
+function isThinkingSkipped() {
+    const context = getContext();
+    return settings.excluded_characters.includes(context.characters[context.characterId].name)
+        || settings.thinking_prompts.find(item => item.is_enabled !== false) === undefined;
 }
 
 // thinking
@@ -393,12 +488,6 @@ export function stopThinking(textarea) {
  * @returns {Promise<void>}
  */
 export async function runThinking(textarea) {
-    const context = getContext();
-    if (settings.excluded_characters.includes(context.characters[context.characterId].name)) {
-        await hideThoughts();
-        return;
-    }
-
     isThinking = true;
 
     try {
@@ -434,19 +523,26 @@ async function sendUserMessage(textarea) {
  */
 async function hideThoughts() {
     const context = getContext();
-    const currentCharacter = context.characters[context.characterId];
     const maxThoughts = settings.max_thoughts_in_prompt;
+
+    const currentCharacter = context.characters[context.characterId];
+    const isMindReaderCharacter = settings.mind_reader_characters.includes(currentCharacter.name);
+    const hasAccessToThought = (chatCharacter) => isMindReaderCharacter || chatCharacter.name === currentCharacter.name;
 
     let promises = [];
     const lastMessageIndex = context.chat.length - 1;
-    for (let i = lastMessageIndex, thoughtsCount = 0; lastMessageIndex - i < settings.max_hiding_thoughts_lookup; i--) {
+    for (let i = lastMessageIndex, thoughtsCount = []; lastMessageIndex - i < settings.max_hiding_thoughts_lookup; i--) {
         if (Boolean(context.chat[i]?.is_thoughts)) {
-            if (thoughtsCount < maxThoughts && context.chat[i].name === currentCharacter.name) {
-                thoughtsCount++;
+            const chatCharacter = context.chat[i];
+            thoughtsCount[chatCharacter.name] ??= 0;
+
+            if (thoughtsCount[chatCharacter.name] < maxThoughts && hasAccessToThought(chatCharacter)) {
                 promises.push(hideChatMessageRange(i, i, true));
             } else {
                 promises.push(hideChatMessageRange(i, i, false));
             }
+
+            thoughtsCount[chatCharacter.name]++;
         }
     }
 
@@ -485,11 +581,15 @@ async function generateThoughts() {
         toastThinking = toastr.info(toastThinkingMessage, 'Stepped Thinking', { timeOut: 0, extendedTimeOut: 0 });
     }
 
-    const prompts = settings.thinking_prompts;
+    const prompts = settings.thinking_prompts.filter(item => item.is_enabled !== false);
     for (let i = 0; i < prompts.length; i++) {
         if (prompts[i]?.prompt) {
             const thoughts = await generateCharacterThoughts(prompts[i].prompt);
             await insertCharacterThoughtsAt(characterThoughtsPosition, thoughts);
+
+            if (prompts[i + 1]?.prompt) {
+                await generationDelay();
+            }
         }
     }
 
@@ -524,7 +624,7 @@ async function sendCharacterTemplateMessage() {
 async function generateCharacterThoughts(prompt) {
     const context = getContext();
 
-    let result = await context.generateQuietPrompt(prompt, false, false);
+    let result = await context.generateQuietPrompt(prompt, false, settings.is_wian_skipped, null, null, settings.max_response_length);
 
     if (settings.regexp_to_sanitize.trim() !== '') {
         const regexp = context.substituteParams(settings.regexp_to_sanitize);
@@ -628,6 +728,19 @@ function replaceThoughtsPlaceholder(substitution) {
     return thoughtsPlaceholder.replace('{{thoughts}}', substitution);
 }
 
+/**
+ * @return {Promise<void>}
+ */
+async function generationDelay() {
+    if (settings.generation_delay > 0.0) {
+        console.log('Delaying generation for', settings.generation_delay, 'seconds');
+        await new Promise((resolve) => setTimeout(resolve, settings.generation_delay * 1000));
+        console.log('Generation delay complete');
+    }
+}
+
+//
+
 SlashCommandParser.addCommandObject(SlashCommand.fromProps({
 	name: 'steppedthinking-trigger',
 	callback: async () => {
@@ -636,8 +749,6 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
 	helpString: 'Trigger Stepped Thinking via command/QR[Only 1 on 1 chats].',
 }));
 
-//
-
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolder}/settings.html`);
 
@@ -645,7 +756,7 @@ jQuery(async () => {
 
     registerCommonSettingListeners();
     registerThinkingPromptListeners();
-    registerExcludedCharacterListeners();
+    registerSpecificCharacterListeners();
 
     registerGenerationEventListeners();
 

@@ -16,11 +16,12 @@ prompt generation. This increases the overall waiting time for a response in fav
 4. Removal of extra symbols from thoughts using a customizable regular expression.
 5. Isolation of thoughts from different characters in group chats.
 6. The ability to exclude a particular character from the thinking process by their name.
+7. The ability to allow a particular character to read the thoughts of other characters in group chats.
 
 ### Planned
 
 1. Handling swipes on generated thoughts.
-2. Streaming into messages with thoughts.
+2. Customization of prompts for specified characters.
 3. Localization in Russian.
 
 ## Installation and Usage
@@ -42,6 +43,8 @@ extension: https://github.com/cierru/st-stepped-thinking
 4. Wait until a popup with the text "Done!" raises.
 5. Another message from the same character should be generated immediately.
 
+You can also run the thinking process with the `/steppedthinking-trigger` command in solo chats.
+
 ### Settings
 
 You can find the extension settings in the `Stepped Thinking` section of the SillyTavern `Extensions` menu.
@@ -58,7 +61,7 @@ probably don't want to change them, however there is a list of the settings just
 
 ## Prerequisites
 
-The extension has been tested on SillyTavern 1.12.6 but should also work in other versions.
+The extension has been tested on SillyTavern 1.12.6+ and may not work with other versions.
 
 ## Support and Contributions
 
