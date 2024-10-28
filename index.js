@@ -12,6 +12,8 @@ import {
     substituteParams,
     updateMessageBlock,
 } from '../../../../script.js';
+import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
+import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { hideChatMessageRange } from '../../../chats.js';
 import { getMessageTimeStamp } from '../../../RossAscends-mods.js';
 
@@ -327,6 +329,9 @@ async function onGenerationAfterCommands(type) {
     generationType = type;
     isGenerationStopped = false;
 
+    if (!settings.is_enabled || isThinking) {
+        return;
+    }
     if (getContext().groupId) {
         return;
     }
@@ -341,6 +346,9 @@ async function onGenerationAfterCommands(type) {
  * @returns {Promise<void>}
  */
 async function onGroupMemberDrafted() {
+    if (!settings.is_enabled || isThinking) {
+        return;
+    }
     if (isGenerationStopped) {
         return;
     }
@@ -385,10 +393,6 @@ export function stopThinking(textarea) {
  * @returns {Promise<void>}
  */
 export async function runThinking(textarea) {
-    if (!settings.is_enabled || isThinking) {
-        return;
-    }
-
     const context = getContext();
     if (settings.excluded_characters.includes(context.characters[context.characterId].name)) {
         await hideThoughts();
@@ -623,6 +627,14 @@ function replaceThoughtsPlaceholder(substitution) {
     const thoughtsPlaceholder = settings.thoughts_framing + settings.thoughts_placeholder + settings.thoughts_framing;
     return thoughtsPlaceholder.replace('{{thoughts}}', substitution);
 }
+
+SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+	name: 'steppedthinking-trigger',
+	callback: async () => {
+		await runThinking($('#send_textarea'));
+	},
+	helpString: 'Trigger Stepped Thinking via command/QR[Only 1 on 1 chats].',
+}));
 
 //
 
