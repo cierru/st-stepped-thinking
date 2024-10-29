@@ -526,7 +526,7 @@ async function hideThoughts() {
     const maxThoughts = settings.max_thoughts_in_prompt;
 
     const currentCharacter = context.characters[context.characterId];
-    const isMindReaderCharacter = settings.mind_reader_characters.includes(currentCharacter.name);
+    const isMindReaderCharacter = Boolean(settings.mind_reader_characters?.includes(currentCharacter.name));
     const hasAccessToThought = (chatCharacter) => isMindReaderCharacter || chatCharacter.name === currentCharacter.name;
 
     let promises = [];
