@@ -16,7 +16,8 @@
 
             <div class="flex-container justifySpaceBetween alignItemsCenter">
                 Prompts for thinking:
-                <div id="stepthink_prompt_list_add" class="menu_button menu_button_icon fa-solid fa-plus"
+                <div id="stepthink_prompt_list_add"
+                     class="menu_button menu_button_icon fa-solid fa-plus"
                      title="Add prompt"></div>
             </div>
 
@@ -43,24 +44,14 @@
             </div>
 
             <div class="flex-container justifySpaceBetween alignItemsCenter">
-                <label for="stepthink_excluded_characters"
-                       title="Do you want to exclude your narrator or anyone else from the thinking process? This option is for you. Also, pay attention that characters are identified by their names">
-                    Characters with disabled thinking:
+                <label for="stepthink_character_settings"
+                       title="You can set up individual settings for selected characters. Click on a character’s name after the character is added to the list to adjust its settings">
+                    Character settings (click on a name to adjust):
                 </label>
-                <div class="stepthink_load_characters menu_button menu_button_icon fa-solid fa-undo"
+                <div id="stepthink_load_characters"
+                     class="menu_button menu_button_icon fa-solid fa-undo"
                      title="Reload characters list"></div>
-                <select id="stepthink_excluded_characters" class="select2_multi_sameline"
-                        multiple="multiple"></select>
-            </div>
-
-            <div class="flex-container justifySpaceBetween alignItemsCenter">
-                <label for="stepthink_mind_reader_characters"
-                       title="Another useful option for narrators - it allows characters from the list to read the thoughts of all other characters. Also, pay attention that characters are identified by their names">
-                    Characters who read others' thoughts:
-                </label>
-                <div class="stepthink_load_characters menu_button menu_button_icon fa-solid fa-undo"
-                     title="Reload characters list"></div>
-                <select id="stepthink_mind_reader_characters" class="select2_multi_sameline"
+                <select id="stepthink_character_settings" class="select2_multi_sameline"
                         multiple="multiple"></select>
             </div>
 

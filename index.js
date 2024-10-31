@@ -1,21 +1,23 @@
-import { extension_settings, getContext } from '../../../extensions.js';
+import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../extensions.js';
 import {
-    addOneMessage,
-    chat,
     event_types,
     eventSource,
-    extractMessageBias,
-    removeMacros,
-    saveChatConditional,
     saveSettingsDebounced,
-    sendMessageAsUser,
-    substituteParams,
-    updateMessageBlock,
+    setCharacterId,
+    setCharacterName,
 } from '../../../../script.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
-import { hideChatMessageRange } from '../../../chats.js';
-import { getMessageTimeStamp } from '../../../RossAscends-mods.js';
+import { select2ChoiceClickSubscribe } from '../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
+import {
+    getCurrentCharacterSettings,
+    runChatThinking,
+    runThinking,
+    stopThinking,
+} from './engine.js';
+import { ARGUMENT_TYPE, SlashCommandArgument } from '../../../slash-commands/SlashCommandArgument.js';
+import { commonEnumProviders } from '../../../slash-commands/SlashCommandCommonEnumsProvider.js';
 
 const extensionName = 'st-stepped-thinking';
 const extensionFolder = `scripts/extensions/third-party/${extensionName}`;
@@ -30,14 +32,14 @@ async function loadSettings() {
             extension_settings[extensionName],
             defaultCommonSettings,
             defaultThinkingPromptSettings,
-            defaultSpecificCharactersSettings,
+            defaultCharactersSettings,
         );
     }
     settings = extension_settings[extensionName];
 
     loadCommonSettings();
     loadThinkingPromptSettings();
-    loadSpecificCharacterSettings();
+    loadCharacterSettings();
 }
 
 // settings - common
@@ -89,17 +91,25 @@ export function registerCommonSettingListeners() {
 
     $('#stepthink_additional_settings_toggle').on('click', () => $('#stepthink_additional_settings').slideToggle(200, 'swing'));
     $('#stepthink_restore_regexp_to_sanitize').on('click', () =>
-        $('#stepthink_regexp_to_sanitize').val(defaultCommonSettings.regexp_to_sanitize).trigger('input')
+        $('#stepthink_regexp_to_sanitize').val(defaultCommonSettings.regexp_to_sanitize).trigger('input'),
     );
 }
 
 /**
  * @param {string} settingName
+ * @param {object?} settingBase
  * @return {(function(): void)}
  */
-function onCheckboxInput(settingName) {
+function onCheckboxInput(settingName, settingBase = null) {
     return function () {
-        settings[settingName] = Boolean($(this).prop('checked'));
+        const value = Boolean($(this).prop('checked'));
+
+        if (settingBase) {
+            settingBase[settingName] = value;
+        } else {
+            settings[settingName] = value;
+        }
+
         saveSettingsDebounced();
     };
 }
@@ -141,96 +151,291 @@ function onGenerationDelayInput() {
     saveSettingsDebounced();
 }
 
-// settings - specific_characters
+// settings - character_settings
 
-export const defaultSpecificCharactersSettings = {
-    'excluded_characters': [],
-    'mind_reader_characters': [],
+/**
+ * A character's settings are identified by their name, because there are no reliable long-term ids for them in SillyTavern except for avatars
+ *
+ * @typedef {object} CharacterThinkingSettings
+ * @property {string} name - the name of the character
+ * @property {boolean} is_setting_enabled - whether this set of options will be applied or not
+ * @property {boolean} is_thinking_enabled - whether the thinking process will be run for the character or not
+ * @property {boolean} is_mind_reader - whether the character can read the other characters' thoughts or not
+ * @property {ThinkingPrompt[]} thinking_prompts - a unique set of thinking prompts that will be used by the character
+ */
+
+/**
+ * @type {{character_settings: CharacterThinkingSettings[]}}
+ */
+export const defaultCharactersSettings = {
+    'character_settings': [],
 };
 
 /**
  * @return {void}
  */
-export function loadSpecificCharacterSettings() {
+export function loadCharacterSettings() {
     // don't need so far, it's here to preserve the structure of each settings file
 }
 
 /**
  * @return {void}
  */
-export function registerSpecificCharacterListeners() {
-    const excludedCharacters = $('#stepthink_excluded_characters');
-    excludedCharacters.select2({
+export function registerCharacterSettingsListeners() {
+    const characterSettings = $('#stepthink_character_settings');
+    characterSettings.select2({
         width: '100%',
         placeholder: 'No characters chosen. Click here to select.',
         allowClear: true,
         closeOnSelect: false,
     });
-    excludedCharacters.on('change', onSpecificCharactersChange('excluded_characters'));
+    select2ChoiceClickSubscribe(characterSettings, onCharacterSettingClicked, { buttonStyle: true, closeDrawer: true });
 
-    const mindReaderCharacters = $('#stepthink_mind_reader_characters');
-    mindReaderCharacters.select2({
-            width: '100%',
-            placeholder: 'No characters chosen. Click here to select.',
-            allowClear: true,
-            closeOnSelect: false,
-    });
-    mindReaderCharacters.on('change', onSpecificCharactersChange('mind_reader_characters'));
+    characterSettings.on('select2:unselect', onCharacterUnselected);
+    characterSettings.on('select2:select', onCharacterSelected);
 
-    $('.stepthink_load_characters').on('click', onLoadCharacters);
+    $('#stepthink_load_characters').on('click', onLoadCharacters);
 
     eventSource.on(event_types.APP_READY, onLoadCharacters);
 }
 
 /**
- * Excluded characters are identified by their names, because there are no reliable long-term ids for them in SillyTavern
+ * @return {void}
+ */
+export function addCharacterSettingMenuButton() {
+    const characterMenuButton = document.createElement('div');
+    characterMenuButton.setAttribute('id', 'stepthink_character_setting_menu_button');
+    characterMenuButton.setAttribute('title', 'Setup Stepped Thinking');
+    characterMenuButton.classList.add('menu_button', 'fa-solid', 'fa-comment', 'interactable');
+    characterMenuButton.addEventListener('click', onCharacterSettingMenuButtonClick);
+
+    watchButtonVisibility(characterMenuButton);
+
+    $('.form_create_bottom_buttons_block').prepend(characterMenuButton);
+}
+
+/**
+ * This is a workaround to highlight the button when the right navigation panel displays a new character.
+ * The workaround may be removed once an event triggered by the select_selected_character function is implemented
+ * or something like this
  *
+ * @param {Element} characterMenuButton
+ * @return {void}
+ */
+function watchButtonVisibility(characterMenuButton) {
+    const intersectionObserver = new IntersectionObserver(entries => {
+        const characterMenuButtonEntity = entries[0];
+        if (characterMenuButtonEntity.isIntersecting) {
+            toggleCharacterMenuButtonHighlight(characterMenuButtonEntity.target);
+        }
+    });
+
+    intersectionObserver.observe(characterMenuButton);
+}
+
+/**
+ * @param {Element} characterMenuButton
+ * @return {void}
+ */
+function toggleCharacterMenuButtonHighlight(characterMenuButton) {
+    if (getCurrentCharacterSettings()?.is_setting_enabled) {
+        characterMenuButton.classList.add('toggleEnabled');
+    } else {
+        characterMenuButton.classList.remove('toggleEnabled');
+    }
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function onCharacterSettingMenuButtonClick() {
+    const context = getContext();
+    const characterName = context.characters[context.characterId].name;
+
+    await showCharacterSettingsPopup(characterName);
+}
+
+/**
+ * @param {object} event
+ * @return {Promise<void>}
+ */
+async function onCharacterSettingClicked(event) {
+    const characterName = event.textContent;
+    await showCharacterSettingsPopup(characterName);
+}
+
+/**
+ * @param {string} characterName
+ * @return {(function(*): void)}
+ */
+function resolveCharacterSelectionPopup(characterName) {
+    return (is_setting_enabled) => {
+        if (is_setting_enabled === 1) {
+            selectCharacter(characterName);
+        } else {
+            unselectCharacter(characterName);
+        }
+
+        $('#stepthink_load_characters').trigger('click');
+    };
+}
+
+/**
+ *
+ * @param {string} characterName
+ * @return {Promise<void>}
+ */
+async function showCharacterSettingsPopup(characterName) {
+    const shortName = characterName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const setting = selectCharacter(characterName);
+
+    const template = await renderExtensionTemplateAsync(
+        'third-party/' + extensionName,
+        'character-settings',
+        {
+            character_name: characterName,
+            short_name: shortName,
+        },
+    );
+
+    const popup = callGenericPopup(template, POPUP_TYPE.TEXT, '', { okButton: 'Activate', cancelButton: 'Deactivate' });
+    popup.then(resolveCharacterSelectionPopup(characterName));
+
+    $(`#stepthink_character_settings--${shortName}`).ready(onCharacterSettingReady(shortName, setting));
+
+    $(`#stepthink_is_thinking_enabled--${shortName}`).on('input', onCheckboxInput('is_thinking_enabled', setting));
+    $(`#stepthink_is_mind_reader--${shortName}`).on('input', onCheckboxInput('is_mind_reader', setting));
+
+    $(`#stepthink_prompt_list_add--${shortName}`).on('click', onPromptItemAdd({
+        owner: shortName,
+        prompts_element: $(`#stepthink_prompt_list--${shortName}`),
+        prompts_settings: setting.thinking_prompts,
+    }));
+}
+
+/**
+ * @param {string} shortName
+ * @param {CharacterThinkingSettings} setting
+ * @return {(function(): void)}
+ */
+function onCharacterSettingReady(shortName, setting) {
+    return function () {
+        const list = $(`#stepthink_prompt_list--${shortName}`);
+
+        $(`#stepthink_is_thinking_enabled--${shortName}`).prop('checked', setting.is_thinking_enabled);
+        $(`#stepthink_is_mind_reader--${shortName}`).prop('checked', setting.is_mind_reader);
+
+        setting.thinking_prompts.forEach(prompt => {
+            renderThinkingPromptAt(
+                prompt.id,
+                {
+                    owner: shortName,
+                    prompts_element: list,
+                    prompts_settings: setting.thinking_prompts,
+                },
+            );
+        });
+    };
+}
+
+/**
+ * @param {object} event
+ * @return {void}
+ */
+async function onCharacterSelected(event) {
+    const characterName = event.params.data.id;
+
+    selectCharacter(characterName);
+    await showCharacterSettingsPopup(characterName);
+}
+
+/**
+ * @param {string} characterName
+ * @return {CharacterThinkingSettings}
+ */
+function selectCharacter(characterName) {
+    settings.character_settings ??= [];
+
+    let setting = settings.character_settings.find(setting => setting.name === characterName);
+    if (!setting) {
+        setting = {
+            name: characterName,
+            is_setting_enabled: true,
+            is_thinking_enabled: true,
+            is_mind_reader: false,
+            thinking_prompts: [],
+        };
+        settings.character_settings.push(setting);
+    } else {
+        setting.is_setting_enabled = true;
+    }
+
+    toggleCharacterMenuButtonHighlight(document.getElementById('stepthink_character_setting_menu_button'));
+    saveSettingsDebounced();
+
+    return setting;
+}
+
+/**
+ * @param {object} event
+ * @return {void}
+ */
+function onCharacterUnselected(event) {
+    const characterName = event.params.data.id;
+    unselectCharacter(characterName);
+}
+
+/**
+ * @param {string} characterName
+ * @return {void}
+ */
+function unselectCharacter(characterName) {
+    const setting = settings.character_settings.find(setting => setting.name === characterName);
+    setting.is_setting_enabled = false;
+
+    toggleCharacterMenuButtonHighlight(document.getElementById('stepthink_character_setting_menu_button'));
+    saveSettingsDebounced();
+}
+
+/**
  * @return {void}
  */
 function onLoadCharacters() {
-    const excludedCharacters = $('#stepthink_excluded_characters');
-    const mindReaderCharacters = $('#stepthink_mind_reader_characters');
+    const characterSettings = $('#stepthink_character_settings');
+    characterSettings.empty();
 
-    excludedCharacters.empty();
-    mindReaderCharacters.empty();
+    getContext().characters.forEach(character => {
+        const characterOption = document.createElement('option');
+        characterOption.setAttribute('value', character.name);
 
-    getContext().characters.forEach((character) => {
-        excludedCharacters.append(createSpecificCharacterOption(character, settings.excluded_characters));
-        mindReaderCharacters.append(createSpecificCharacterOption(character, settings.mind_reader_characters));
+        if (settings.character_settings?.find(setting => setting.name === character.name && setting.is_setting_enabled)) {
+            characterOption.selected = true;
+        }
+        characterOption.textContent = character.name;
+
+        characterSettings.append(characterOption);
     });
-}
-
-/**
- * @param {v1CharData} character
- * @param {string[]} selections
- * @return {HTMLOptionElement}
- */
-function createSpecificCharacterOption(character, selections = []) {
-    const characterOption = document.createElement('option');
-    characterOption.setAttribute('value', character.name);
-
-    if (selections.includes(character.name)) {
-        characterOption.selected = true;
-    }
-    characterOption.textContent = character.name;
-
-    return characterOption;
-}
-
-/**
- * @param {string} settingName
- * @return {(function(*): void)}
- */
-function onSpecificCharactersChange(settingName) {
-    return function (event) {
-        const selectedOptions = Array.from(event.target.selectedOptions);
-        settings[settingName] = selectedOptions.map(selectedOption => selectedOption.value);
-        saveSettingsDebounced();
-    }
 }
 
 // settings - prompts
 
+/**
+ * @typedef {object} ThinkingPrompt
+ * @property {number} id - synthetic key
+ * @property {string} prompt - the prompt to be injected in the end of the main prompt
+ * @property {boolean} is_enabled - whether the prompt will be used or not
+ */
+
+/**
+ * @typedef {object} ThinkingPromptTuple
+ * @property {string?} owner - the character that "owns" these prompts. Empty value means no owner (default prompts)
+ * @property {JQuery<HTMLDivElement>|ParentNode} prompts_element - the DOM element visualizing the prompt settings
+ * @property {ThinkingPrompt[]} prompts_settings - the corresponding stored prompt settings
+ */
+
+/**
+ * @type {{thinking_prompts: ThinkingPrompt[]}}
+ */
 export const defaultThinkingPromptSettings = {
     'thinking_prompts': [{
         'id': 0,
@@ -267,8 +472,16 @@ export const defaultThinkingPromptSettings = {
  * @return {void}
  */
 export function loadThinkingPromptSettings() {
-    settings.thinking_prompts.forEach((item) => {
-        renderThinkingPromptAt(item.id, item?.prompt, item?.is_enabled);
+    const list = $('#stepthink_prompt_list');
+
+    settings.thinking_prompts.forEach(prompt => {
+        renderThinkingPromptAt(
+            prompt.id,
+            {
+                prompts_element: list,
+                prompts_settings: settings.thinking_prompts,
+            },
+        );
     });
 }
 
@@ -276,105 +489,119 @@ export function loadThinkingPromptSettings() {
  * @return {void}
  */
 export function registerThinkingPromptListeners() {
-    $('#stepthink_prompt_list_add').on('click', onPromptItemAdd);
+    $('#stepthink_prompt_list_add').on('click', onPromptItemAdd({
+        prompts_element: $('#stepthink_prompt_list'),
+        prompts_settings: settings.thinking_prompts,
+    }));
 }
 
 /**
  * @param {number} id
- * @param {string} prompt
- * @param {boolean} is_enabled
+ * @param {ThinkingPromptTuple} promptTuple
  */
-function renderThinkingPromptAt(id, prompt = '', is_enabled = true) {
+function renderThinkingPromptAt(id, promptTuple) {
+    const currentSetting = promptTuple.prompts_settings.find(prompt => prompt.id === id);
+
     const textArea = document.createElement('textarea');
-    textArea.setAttribute('id', 'stepthink_prompt_text--' + id);
     textArea.setAttribute('data-id', String(id));
     textArea.setAttribute('rows', '6');
     textArea.classList.add('text_pole', 'textarea_compact');
-    if (prompt) {
-        textArea.value = prompt;
+    if (currentSetting.prompt) {
+        textArea.value = currentSetting.prompt;
     }
-    textArea.addEventListener('input', onPromptItemInput);
+    textArea.addEventListener('input', onPromptItemInput(promptTuple));
 
     const buttonsContainer = document.createElement('div');
     buttonsContainer.classList.add('flex-container', 'alignItemsCenter', 'flexFlowColumn');
 
     const isEnabledButton = document.createElement('input');
-    isEnabledButton.setAttribute('id', 'stepthink_prompt_enabled--' + id);
     isEnabledButton.setAttribute('data-id', String(id));
     isEnabledButton.setAttribute('type', 'checkbox');
     isEnabledButton.setAttribute('title', 'Enable prompt');
-    if (is_enabled !== false) {
+    if (currentSetting.is_enabled !== false) {
         isEnabledButton.setAttribute('checked', 'checked');
     }
-    isEnabledButton.addEventListener('input', onPromptItemEnable);
+    isEnabledButton.addEventListener('input', onPromptItemEnable(promptTuple));
 
     const removeButton = document.createElement('div');
-    removeButton.setAttribute('id', 'stepthink_prompt_remove--' + id);
     removeButton.setAttribute('data-id', String(id));
     removeButton.setAttribute('title', 'Remove prompt');
     removeButton.classList.add('menu_button', 'menu_button_icon', 'fa-solid', 'fa-trash', 'redWarningBG');
-    removeButton.addEventListener('click', onPromptItemRemove);
+    removeButton.addEventListener('click', onPromptItemRemove(promptTuple));
 
     buttonsContainer.append(isEnabledButton, removeButton);
 
     const listItem = document.createElement('div');
-    listItem.setAttribute('id', 'stepthink_prompt_item--' + id);
+    listItem.setAttribute('id', `stepthink_prompt_item--${promptTuple?.owner}--${id}`);
     listItem.classList.add('flex-container', 'marginTopBot5', 'alignItemsCenter');
 
     listItem.append(textArea, buttonsContainer);
 
-    $('#stepthink_prompt_list').append(listItem);
+    promptTuple.prompts_element.append(listItem);
 }
 
 /**
- * @return {void}
+ * @param {ThinkingPromptTuple} promptTuple
+ * @return {(function(): void)}
  */
-function onPromptItemAdd() {
-    const promptsCount = settings.thinking_prompts.length;
-    const id = promptsCount > 0 ? settings.thinking_prompts[promptsCount - 1].id + 1 : 0;
+function onPromptItemAdd(promptTuple) {
+    return function () {
+        const promptsCount = promptTuple.prompts_settings.length;
+        const id = promptsCount > 0 ? promptTuple.prompts_settings[promptsCount - 1].id + 1 : 0;
 
-    renderThinkingPromptAt(id);
+        promptTuple.prompts_settings.push({ id: id, prompt: '', is_enabled: true });
+        renderThinkingPromptAt(id, promptTuple);
 
-    settings.thinking_prompts.push({ 'id': id, 'prompt': prompt });
-    saveSettingsDebounced();
+        saveSettingsDebounced();
+    };
 }
 
 /**
- * @param {InputEvent} event
+ * @param {ThinkingPromptTuple} promptTuple
+ * @return {(function(): void)}
  */
-function onPromptItemInput(event) {
-    const id = Number(event.target.getAttribute('data-id'));
+function onPromptItemInput(promptTuple) {
+    return function (event) {
+        const id = Number(event.target.getAttribute('data-id'));
 
-    const value = $('#stepthink_prompt_text--' + id).val();
-    const changedPrompt = settings.thinking_prompts.find(item => item.id === id);
-    changedPrompt.prompt = value;
-    saveSettingsDebounced();
+        const value = event.target.value;
+        const changedPrompt = promptTuple.prompts_settings.find(prompt => prompt.id === id);
+        changedPrompt.prompt = value;
+        saveSettingsDebounced();
+    };
 }
 
 
 /**
- * @param {InputEvent} event
+ * @param {ThinkingPromptTuple} promptTuple
+ * @return {(function(): void)}
  */
-function onPromptItemEnable(event) {
-    const id = Number(event.target.getAttribute('data-id'));
+function onPromptItemEnable(promptTuple) {
+    return function (event) {
+        const id = Number(event.target.getAttribute('data-id'));
 
-    const value = $('#stepthink_prompt_enabled--' + id).prop('checked');
-    const changedPrompt = settings.thinking_prompts.find(item => item.id === id);
-    changedPrompt.is_enabled = value;
-    saveSettingsDebounced();
+        const value = event.target.checked;
+        const changedPrompt = promptTuple.prompts_settings.find(prompt => prompt.id === id);
+        changedPrompt.is_enabled = value;
+        saveSettingsDebounced();
+    };
 }
 
 /**
- * @param {PointerEvent} event
+ * @param {ThinkingPromptTuple} promptTuple
+ * @return {(function(): void)}
  */
-function onPromptItemRemove(event) {
-    console.log('onPromptItemRemove', event);
-    const id = Number(event.target.getAttribute('data-id'));
+function onPromptItemRemove(promptTuple) {
+    return function (event) {
+        const id = Number(event.target.getAttribute('data-id'));
 
-    $('#stepthink_prompt_item--' + id).remove();
+        $(`#stepthink_prompt_item--${promptTuple?.owner}--${id}`).remove();
 
-    settings.thinking_prompts = settings.thinking_prompts.filter(item => item.id !== id);
-    saveSettingsDebounced();
+        const arrayIndexToDelete = promptTuple.prompts_settings.findIndex(prompt => prompt.id === id);
+        promptTuple.prompts_settings.splice(arrayIndexToDelete, 1);
+
+        saveSettingsDebounced();
+    };
 }
 
 // generation
@@ -411,7 +638,7 @@ async function onGenerationAfterCommands(type) {
         return;
     }
 
-    await runChatThinking();
+    await runChatThinking($('#send_textarea'));
 
 }
 
@@ -426,7 +653,7 @@ async function onGroupMemberDrafted() {
         return;
     }
 
-    await runChatThinking();
+    await runChatThinking($('#send_textarea'));
 }
 
 /**
@@ -437,316 +664,51 @@ async function onGenerationStopped() {
     stopThinking($('#send_textarea'));
 }
 
-/**
- * @returns {Promise<void>}
- */
-async function runChatThinking() {
-    if (isThinking || !settings.is_enabled) {
-        return;
-    }
-    if (isThinkingSkipped()) {
-        await hideThoughts();
-        return;
-    }
-
-    await runThinking($('#send_textarea'));
-    await generationDelay();
-}
-
-/**
- * @return {boolean}
- */
-function isThinkingSkipped() {
-    const context = getContext();
-    return settings.excluded_characters.includes(context.characters[context.characterId].name)
-        || settings.thinking_prompts.find(item => item.is_enabled !== false) === undefined;
-}
-
-// thinking
-
-let isThinking = false;
-let toastThinking, sendTextareaOriginalPlaceholder;
-
-/**
- * @param {JQuery<HTMLTextAreaElement>} textarea
- */
-export function stopThinking(textarea) {
-    isThinking = false;
-    if (toastThinking) {
-        toastr.clear(toastThinking);
-    }
-
-    textarea.prop('readonly', false);
-
-    if (sendTextareaOriginalPlaceholder) {
-        textarea.attr('placeholder', sendTextareaOriginalPlaceholder);
-    }
-}
-
-/**
- * @param {JQuery<HTMLTextAreaElement>} textarea
- * @returns {Promise<void>}
- */
-export async function runThinking(textarea) {
-    isThinking = true;
-
-    try {
-        await sendUserMessage(textarea);
-
-        await hideThoughts();
-        await generateThoughtsWithDisabledInput(textarea);
-
-        await hideThoughts();
-    } finally {
-        isThinking = false;
-    }
-}
-
-/**
- * @param {JQuery<HTMLTextAreaElement>} textarea
- * @returns {Promise<void>}
- */
-async function sendUserMessage(textarea) {
-    const text = String(textarea.val());
-    if (text.trim() === '') {
-        return;
-    }
-
-    const bias = extractMessageBias(text);
-
-    textarea.val('')[0].dispatchEvent(new Event('input', { bubbles: true }));
-    await sendMessageAsUser(text, bias);
-}
-
-/**
- * @returns {Promise<void>}
- */
-async function hideThoughts() {
-    const context = getContext();
-    const maxThoughts = settings.max_thoughts_in_prompt;
-
-    const currentCharacter = context.characters[context.characterId];
-    const isMindReaderCharacter = Boolean(settings.mind_reader_characters?.includes(currentCharacter.name));
-    const hasAccessToThought = (chatCharacter) => isMindReaderCharacter || chatCharacter.name === currentCharacter.name;
-
-    let promises = [];
-    const lastMessageIndex = context.chat.length - 1;
-    for (let i = lastMessageIndex, thoughtsCount = []; lastMessageIndex - i < settings.max_hiding_thoughts_lookup; i--) {
-        if (Boolean(context.chat[i]?.is_thoughts)) {
-            const chatCharacter = context.chat[i];
-            thoughtsCount[chatCharacter.name] ??= 0;
-
-            if (thoughtsCount[chatCharacter.name] < maxThoughts && hasAccessToThought(chatCharacter)) {
-                promises.push(hideChatMessageRange(i, i, true));
-            } else {
-                promises.push(hideChatMessageRange(i, i, false));
-            }
-
-            thoughtsCount[chatCharacter.name]++;
-        }
-    }
-
-    await Promise.all(promises);
-}
-
-/**
- * The Generate function sends input from #send_textarea before starting generation. Since the user probably doesn't
- * want their input to be suddenly sent when the character finishes thinking, the input field is disabled during the process
- *
- * @param {JQuery<HTMLTextAreaElement>} textarea
- * @returns {Promise<void>}
- */
-async function generateThoughtsWithDisabledInput(textarea) {
-    sendTextareaOriginalPlaceholder = textarea.attr('placeholder');
-    textarea.attr('placeholder', 'When a character is thinking, the input area is disabled');
-    textarea.prop('readonly', true);
-    textarea.val('')[0].dispatchEvent(new Event('input', { bubbles: true }));
-
-    await generateThoughts();
-
-    textarea.prop('readonly', false);
-    textarea.attr('placeholder', sendTextareaOriginalPlaceholder);
-    sendTextareaOriginalPlaceholder = null;
-}
-
-/**
- * @returns {Promise<void>}
- */
-async function generateThoughts() {
-    const context = getContext();
-    const characterThoughtsPosition = await sendCharacterTemplateMessage();
-
-    if (settings.is_thinking_popups_enabled) {
-        const toastThinkingMessage = context.substituteParams('{{char}} is thinking...');
-        toastThinking = toastr.info(toastThinkingMessage, 'Stepped Thinking', { timeOut: 0, extendedTimeOut: 0 });
-    }
-
-    const prompts = settings.thinking_prompts.filter(item => item.is_enabled !== false);
-    for (let i = 0; i < prompts.length; i++) {
-        if (prompts[i]?.prompt) {
-            const thoughts = await generateCharacterThoughts(prompts[i].prompt);
-            await insertCharacterThoughtsAt(characterThoughtsPosition, thoughts);
-
-            if (prompts[i + 1]?.prompt) {
-                await generationDelay();
-            }
-        }
-    }
-
-    toastr.clear(toastThinking);
-    toastThinking = null;
-    if (settings.is_thinking_popups_enabled) {
-        toastr.success('Done!', 'Stepped Thinking', { timeOut: 2000 });
-    }
-}
-
-/**
- * @returns {Promise<number>}
- */
-async function sendCharacterTemplateMessage() {
-    const context = getContext();
-    const openState = settings.is_thoughts_spoiler_open ? 'open' : '';
-
-    return await sendCharacterThoughts(
-        context.characters[context.characterId],
-        '<details type="executing" ' + openState + '><summary>' +
-        settings.thinking_summary_placeholder +
-        '</summary>' + '\n' +
-        replaceThoughtsPlaceholder(settings.default_thoughts_substitution) + '\n'
-        + '</details>',
-    );
-}
-
-/**
- * @param {string} prompt
- * @returns {Promise<string>}
- */
-async function generateCharacterThoughts(prompt) {
-    const context = getContext();
-
-    let result = await context.generateQuietPrompt(prompt, false, settings.is_wian_skipped, null, null, settings.max_response_length);
-
-    if (settings.regexp_to_sanitize.trim() !== '') {
-        const regexp = context.substituteParams(settings.regexp_to_sanitize);
-        result = result.replace(new RegExp(regexp, 'g'), '');
-    }
-
-    return result;
-}
-
-/**
- * @param {number} position
- * @param {string} thoughts
- * @returns {Promise<void>}
- */
-async function insertCharacterThoughtsAt(position, thoughts) {
-    const context = getContext();
-    if (!context.chat[position]) {
-        toastr.error('The message was not found at position ' + position + ', cannot insert thoughts. ' + 'Probably, the error was caused by unexpected changes in the chat.', 'Stepped Thinking', { timeOut: 10000 });
-        return;
-    }
-    const message = context.chat[position];
-    const defaultPlaceholder = replaceThoughtsPlaceholder(settings.default_thoughts_substitution);
-
-    if (message.mes.search(defaultPlaceholder) !== -1) {
-        message.mes = message.mes.replace(defaultPlaceholder, replaceThoughtsPlaceholder(thoughts));
-    } else {
-        const lastThoughtLastIndex = message.mes.lastIndexOf(settings.thoughts_framing) + settings.thoughts_framing.length;
-        message.mes = message.mes.substring(0, lastThoughtLastIndex) + '\n' + replaceThoughtsPlaceholder(thoughts) + message.mes.substring(lastThoughtLastIndex);
-    }
-
-    updateMessageBlock(position, message);
-
-    await context.saveChat();
-}
-
-/**
- * @param {object} character
- * @param {string} text
- * @returns {Promise<number>}
- */
-async function sendCharacterThoughts(character, text) {
-    let mesText;
-
-    mesText = text.trim();
-
-    const bias = extractMessageBias(mesText);
-    const isSystem = bias && !removeMacros(mesText).length;
-
-    const message = {
-        name: character.name,
-        is_user: false,
-        is_system: isSystem,
-        is_thoughts: true,
-        send_date: getMessageTimeStamp(),
-        mes: substituteParams(mesText),
-        extra: {
-            bias: bias.trim().length ? bias : null,
-            gen_id: Date.now(),
-            isSmallSys: false,
-            api: 'script',
-            model: 'stepped executing',
-        },
-    };
-
-    message.swipe_id = 0;
-    message.swipes = [message.mes];
-    message.swipes_info = [{
-        send_date: message.send_date, gen_started: null, gen_finished: null, extra: {
-            bias: message.extra.bias,
-            gen_id: message.extra.gen_id,
-            isSmallSys: false,
-            api: 'script',
-            model: 'stepped executing',
-        },
-    }];
-
-    const context = getContext();
-    if (context.groupId) {
-        message.original_avatar = character.avatar;
-        message.force_avatar = context.getThumbnailUrl('avatar', character.avatar);
-    }
-
-    chat.push(message);
-
-    const position = chat.length - 1;
-
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, (position));
-    addOneMessage(message);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, (position));
-    await saveChatConditional();
-
-    return position;
-}
-
-/**
- * @param {string} substitution
- * @returns {string}
- */
-function replaceThoughtsPlaceholder(substitution) {
-    const thoughtsPlaceholder = settings.thoughts_framing + settings.thoughts_placeholder + settings.thoughts_framing;
-    return thoughtsPlaceholder.replace('{{thoughts}}', substitution);
-}
-
-/**
- * @return {Promise<void>}
- */
-async function generationDelay() {
-    if (settings.generation_delay > 0.0) {
-        console.log('Delaying generation for', settings.generation_delay, 'seconds');
-        await new Promise((resolve) => setTimeout(resolve, settings.generation_delay * 1000));
-        console.log('Generation delay complete');
-    }
-}
-
 //
 
+/**
+ * @param {object} _
+ * @param {string?} name
+ * @return {Promise<void>}
+ */
+async function runThinkingCommand(_, name = null) {
+    const context = getContext();
+
+    if (!name && !context.characterId) {
+        throw new Error('Unknown character to generate thoughts. Please, specify one with passing the name argument');
+    }
+    if (name) {
+        const characterIndex = context.characters.findIndex(character => character.name === name);
+        if (characterIndex === -1) {
+            throw new Error('A character with the specified name is not found');
+        }
+
+        setCharacterId(characterIndex);
+        setCharacterName(name);
+    }
+
+    try {
+        await runThinking($('#send_textarea'));
+    } catch (error) {
+        // For some reason, the characterId and characterName are reset after the first thinking prompt generation in the context
+        // which leads to throwing an error. I have no desire to untie the generation spaghetti to figure out how to
+        // prevent this behavior or add ugly crutches, taking into consideration that it actually WORKS even despite the errors
+        console.error('An error occurred during running thinking process', error);
+    }
+}
+
 SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-	name: 'steppedthinking-trigger',
-	callback: async () => {
-		await runThinking($('#send_textarea'));
-	},
-	helpString: 'Trigger Stepped Thinking via command/QR[Only 1 on 1 chats].',
+    name: 'stepthink-trigger',
+    callback: runThinkingCommand,
+    unnamedArgumentList: [
+        SlashCommandArgument.fromProps({
+            description: 'character name',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: false,
+            enumProvider: commonEnumProviders.groupMembers,
+        }),
+    ],
+    helpString: 'Trigger Stepped Thinking via command/QR.',
 }));
 
 jQuery(async () => {
@@ -754,9 +716,11 @@ jQuery(async () => {
 
     $('#extensions_settings').append(settingsHtml);
 
+    addCharacterSettingMenuButton();
+
     registerCommonSettingListeners();
     registerThinkingPromptListeners();
-    registerSpecificCharacterListeners();
+    registerCharacterSettingsListeners();
 
     registerGenerationEventListeners();
 

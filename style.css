@@ -3,3 +3,7 @@
     font-size: calc(var(--mainFontSize) * 0.9);
     line-height: 1.2;
 }
+
+[id*=stepthink_prompt_item--]{
+    flex-flow: inherit;
+}
