@@ -716,6 +716,8 @@ jQuery(async () => {
 
     $('#extensions_settings').append(settingsHtml);
 
+    await loadSettings();
+
     addCharacterSettingMenuButton();
 
     registerCommonSettingListeners();
@@ -723,6 +725,4 @@ jQuery(async () => {
     registerCharacterSettingsListeners();
 
     registerGenerationEventListeners();
-
-    loadSettings();
 });
