@@ -122,22 +122,23 @@ async function hideThoughts() {
     const characterSettings = getCurrentCharacterSettings();
 
     const isMindReaderCharacter = Boolean(characterSettings && characterSettings.is_mind_reader);
-    const hasAccessToThought = (chatCharacter) => isMindReaderCharacter || chatCharacter.name === currentCharacter.name;
+    const hasAccessToThought = (chatCharacter) => isMindReaderCharacter || chatCharacter.thoughts_for === currentCharacter.name;
 
     let promises = [];
     const lastMessageIndex = context.chat.length - 1;
     for (let i = lastMessageIndex, thoughtsCount = []; lastMessageIndex - i < settings.max_hiding_thoughts_lookup; i--) {
+        if (i < 0) break;
         if (Boolean(context.chat[i]?.is_thoughts)) {
             const chatCharacter = context.chat[i];
-            thoughtsCount[chatCharacter.name] ??= 0;
+            thoughtsCount[chatCharacter.thoughts_for] ??= 0;
 
-            if (thoughtsCount[chatCharacter.name] < maxThoughts && hasAccessToThought(chatCharacter)) {
+            if (thoughtsCount[chatCharacter.thoughts_for] < maxThoughts && hasAccessToThought(chatCharacter)) {
                 promises.push(hideChatMessageRange(i, i, true));
             } else {
                 promises.push(hideChatMessageRange(i, i, false));
             }
 
-            thoughtsCount[chatCharacter.name]++;
+            thoughtsCount[chatCharacter.thoughts_for]++;
         }
     }
 
@@ -267,15 +268,18 @@ async function sendCharacterThoughts(character, text) {
 
     const bias = extractMessageBias(mesText);
     const isSystem = bias && !removeMacros(mesText).length;
+    const isNarrator = settings.thoughts_as_system
 
     const message = {
-        name: character.name,
+        name: isNarrator ? `${character.name}'s Thoughts` : character.name,
         is_user: false,
         is_system: isSystem,
         is_thoughts: true,
+        thoughts_for: character.name,
         send_date: getMessageTimeStamp(),
         mes: substituteParams(mesText),
         extra: {
+            type: isNarrator ? 'narrator' : undefined,
             bias: bias.trim().length ? bias : null,
             gen_id: Date.now(),
             isSmallSys: false,
@@ -297,7 +301,7 @@ async function sendCharacterThoughts(character, text) {
     }];
 
     const context = getContext();
-    if (context.groupId) {
+    if (context.groupId || isNarrator) {
         message.original_avatar = character.avatar;
         message.force_avatar = context.getThumbnailUrl('avatar', character.avatar);
     }
