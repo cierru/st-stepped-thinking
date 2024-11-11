@@ -266,7 +266,7 @@ async function sendCharacterThoughts(character, text) {
 
     const bias = extractMessageBias(mesText);
     const isSystem = bias && !removeMacros(mesText).length;
-    const isAsSystem = settings.thoughts_as_system
+    const isAsSystem = settings.thoughts_as_system;
 
     const message = {
         name: isAsSystem ? `${character.name}'s Thoughts` : character.name,
