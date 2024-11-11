@@ -122,23 +122,21 @@ async function hideThoughts() {
     const characterSettings = getCurrentCharacterSettings();
 
     const isMindReaderCharacter = Boolean(characterSettings && characterSettings.is_mind_reader);
-    const hasAccessToThought = (chatCharacter) => isMindReaderCharacter || chatCharacter.thoughts_for === currentCharacter.name;
+    const hasAccessToThought = (chatThoughtName) => isMindReaderCharacter || chatThoughtName === currentCharacter.name;
 
     let promises = [];
     const lastMessageIndex = context.chat.length - 1;
     for (let i = lastMessageIndex, thoughtsCount = []; lastMessageIndex - i < settings.max_hiding_thoughts_lookup; i--) {
-        if (i < 0) break;
         if (Boolean(context.chat[i]?.is_thoughts)) {
-            const chatCharacter = context.chat[i];
-            thoughtsCount[chatCharacter.thoughts_for] ??= 0;
-
-            if (thoughtsCount[chatCharacter.thoughts_for] < maxThoughts && hasAccessToThought(chatCharacter)) {
+            const chatThoughtName = context.chat[i].thoughts_for || context.chat[i].name;
+            thoughtsCount[chatThoughtName] ??= 0;
+            if (thoughtsCount[chatThoughtName] < maxThoughts && hasAccessToThought(chatThoughtName)) {
                 promises.push(hideChatMessageRange(i, i, true));
             } else {
                 promises.push(hideChatMessageRange(i, i, false));
             }
 
-            thoughtsCount[chatCharacter.thoughts_for]++;
+            thoughtsCount[chatThoughtName]++;
         }
     }
 
