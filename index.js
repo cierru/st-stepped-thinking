@@ -49,6 +49,7 @@ export const defaultCommonSettings = {
     'is_wian_skipped': false,
     'is_thinking_popups_enabled': true,
     'is_thoughts_spoiler_open': false,
+    'thoughts_as_system': false,
     'max_thoughts_in_prompt': 2,
     'generation_delay': 0.0,
     'max_response_length': 0,
@@ -74,6 +75,7 @@ export function loadCommonSettings() {
     $('#stepthink_is_wian_skipped').prop('checked', settings.is_wian_skipped).trigger('input');
     $('#stepthink_is_thoughts_spoiler_open').prop('checked', settings.is_thoughts_spoiler_open).trigger('input');
     $('#stepthink_is_thinking_popups_enabled').prop('checked', settings.is_thinking_popups_enabled).trigger('input');
+    $('#stepthink_thoughts_as_system').prop('checked', settings.thoughts_as_system).trigger('input');
 }
 
 /**
@@ -84,6 +86,7 @@ export function registerCommonSettingListeners() {
     $('#stepthink_is_wian_skipped').on('input', onCheckboxInput('is_wian_skipped'));
     $('#stepthink_is_thoughts_spoiler_open').on('input', onCheckboxInput('is_thoughts_spoiler_open'));
     $('#stepthink_is_thinking_popups_enabled').on('input', onCheckboxInput('is_thinking_popups_enabled'));
+    $('#stepthink_thoughts_as_system').on('input', onCheckboxInput('thoughts_as_system'));
     $('#stepthink_regexp_to_sanitize').on('input', onRegexpToSanitizeChanged);
     $('#stepthink_max_thoughts_in_prompt').on('input', onIntegerTextareaInput('max_thoughts_in_prompt'));
     $('#stepthink_max_response_length').on('input', onIntegerTextareaInput('max_response_length'));
