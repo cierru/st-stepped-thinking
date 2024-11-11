@@ -57,7 +57,7 @@ export const defaultCommonSettings = {
 
     // Not in UI, since the settings are unlikely to be changed
     'thoughts_framing': '```',
-    'thoughts_placeholder': 'st\n{{thoughts}}\n',
+    'thoughts_placeholder': 'md\n{{thoughts}}\n',
     'default_thoughts_substitution': '...',
     'thinking_summary_placeholder': 'Thinking ({{char}}) 💭',
     'max_hiding_thoughts_lookup': 200,
