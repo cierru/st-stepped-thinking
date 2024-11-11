@@ -126,7 +126,7 @@ async function hideThoughts() {
 
     let promises = [];
     const lastMessageIndex = context.chat.length - 1;
-    for (let i = lastMessageIndex, thoughtsCount = []; lastMessageIndex - i < settings.max_hiding_thoughts_lookup; i--) {
+    for (let i = lastMessageIndex, thoughtsCount = []; i >= 0 && (lastMessageIndex - i < settings.max_hiding_thoughts_lookup); i--) {
         if (Boolean(context.chat[i]?.is_thoughts)) {
             const chatThoughtName = context.chat[i].thoughts_for || context.chat[i].name;
             thoughtsCount[chatThoughtName] ??= 0;
