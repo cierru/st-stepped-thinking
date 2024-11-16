@@ -82,6 +82,7 @@ You probably don't want to change them, however there is a list of the settings 
 * **default_thoughts_substitution** - a stub to put into a thought block while thinking is in progress.
 * **thinking_summary_placeholder** - the header of spoilers in thought blocks.
 * **max_hiding_thoughts_lookup** - the maximum number of messages to look up for thoughts to hide.
+* **system_character_placeholder** - a placeholder for the character's name when thoughts are sent as System.
 
 ## Prerequisites
 

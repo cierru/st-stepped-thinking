@@ -18,6 +18,7 @@ import {
 } from './engine.js';
 import { ARGUMENT_TYPE, SlashCommandArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { commonEnumProviders } from '../../../slash-commands/SlashCommandCommonEnumsProvider.js';
+import { is_group_generating } from '../../../group-chats.js';
 
 const extensionName = 'st-stepped-thinking';
 const extensionFolder = `scripts/extensions/third-party/${extensionName}`;
@@ -37,9 +38,25 @@ async function loadSettings() {
     }
     settings = extension_settings[extensionName];
 
+    migrateOutdatedSettingsV2(settings);
+
     loadCommonSettings();
     loadThinkingPromptSettings();
     loadCharacterSettings();
+}
+
+/**
+ * This is a temporary function that will be removed in v3
+ *
+ * @param {object} settings
+ */
+function migrateOutdatedSettingsV2(settings) {
+    if (settings.is_thoughts_as_system === undefined && settings.thoughts_as_system !== undefined) {
+        settings.is_thoughts_as_system = settings.thoughts_as_system;
+    }
+    if (settings.system_character_placeholder === undefined) {
+        settings.system_character_placeholder = defaultCommonSettings.system_character_placeholder;
+    }
 }
 
 // settings - common
@@ -49,7 +66,7 @@ export const defaultCommonSettings = {
     'is_wian_skipped': false,
     'is_thinking_popups_enabled': true,
     'is_thoughts_spoiler_open': false,
-    'thoughts_as_system': false,
+    'is_thoughts_as_system': false,
     'max_thoughts_in_prompt': 2,
     'generation_delay': 0.0,
     'max_response_length': 0,
@@ -60,6 +77,7 @@ export const defaultCommonSettings = {
     'thoughts_placeholder': 'md\n{{thoughts}}\n',
     'default_thoughts_substitution': '...',
     'thinking_summary_placeholder': 'Thinking ({{char}}) 💭',
+    'system_character_placeholder': '{{char}}\'s Thoughts',
     'max_hiding_thoughts_lookup': 200,
 };
 
@@ -75,7 +93,7 @@ export function loadCommonSettings() {
     $('#stepthink_is_wian_skipped').prop('checked', settings.is_wian_skipped).trigger('input');
     $('#stepthink_is_thoughts_spoiler_open').prop('checked', settings.is_thoughts_spoiler_open).trigger('input');
     $('#stepthink_is_thinking_popups_enabled').prop('checked', settings.is_thinking_popups_enabled).trigger('input');
-    $('#stepthink_thoughts_as_system').prop('checked', settings.thoughts_as_system).trigger('input');
+    $('#stepthink_is_thoughts_as_system').prop('checked', settings.is_thoughts_as_system).trigger('input');
 }
 
 /**
@@ -86,7 +104,7 @@ export function registerCommonSettingListeners() {
     $('#stepthink_is_wian_skipped').on('input', onCheckboxInput('is_wian_skipped'));
     $('#stepthink_is_thoughts_spoiler_open').on('input', onCheckboxInput('is_thoughts_spoiler_open'));
     $('#stepthink_is_thinking_popups_enabled').on('input', onCheckboxInput('is_thinking_popups_enabled'));
-    $('#stepthink_thoughts_as_system').on('input', onCheckboxInput('thoughts_as_system'));
+    $('#stepthink_is_thoughts_as_system').on('input', onCheckboxInput('is_thoughts_as_system'));
     $('#stepthink_regexp_to_sanitize').on('input', onRegexpToSanitizeChanged);
     $('#stepthink_max_thoughts_in_prompt').on('input', onIntegerTextareaInput('max_thoughts_in_prompt'));
     $('#stepthink_max_response_length').on('input', onIntegerTextareaInput('max_response_length'));
@@ -608,22 +626,12 @@ function onPromptItemRemove(promptTuple) {
 }
 
 // generation
-
-let generationType;
-let isGenerationStopped = false; // this is a crutch to avoid looping in group chats
-
 /**
- * There is a hidden dependency between the events: GENERATION_AFTER_COMMANDS and GROUP_MEMBER_DRAFTED.
- * The second one fires only in group chats, as it follows from the name, and since it is aware of a character id
- * that has been chosen for generation, it is more suitable for launching the thinking process. However,
- * GENERATION_AFTER_COMMANDS is still required to retrieve and pass some important information about the Generate call.
- *
  * @return {void}
  */
 export function registerGenerationEventListeners() {
     eventSource.on(event_types.GENERATION_STOPPED, onGenerationStopped);
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onGenerationAfterCommands);
-    eventSource.on(event_types.GROUP_MEMBER_DRAFTED, onGroupMemberDrafted);
 }
 
 /**
@@ -631,39 +639,27 @@ export function registerGenerationEventListeners() {
  * @returns {Promise<void>}
  */
 async function onGenerationAfterCommands(type) {
-    generationType = type;
-    isGenerationStopped = false;
-
     if (getContext().groupId) {
-        return;
-    }
-    if (generationType) {
-        return;
-    }
-
-    await runChatThinking($('#send_textarea'));
-
-}
-
-/**
- * @returns {Promise<void>}
- */
-async function onGroupMemberDrafted() {
-    if (isGenerationStopped) {
-        return;
-    }
-    if (generationType && generationType !== 'normal' && generationType !== 'group_chat') {
-        return;
+        if (!is_group_generating) {
+            return;
+        }
+        if (type !== 'normal' && type !== 'group_chat') {
+            return;
+        }
+    } else {
+        if (type) {
+            return;
+        }
     }
 
     await runChatThinking($('#send_textarea'));
+
 }
 
 /**
  * @returns {Promise<void>}
  */
 async function onGenerationStopped() {
-    isGenerationStopped = true;
     stopThinking($('#send_textarea'));
 }
 

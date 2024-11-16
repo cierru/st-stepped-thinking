@@ -266,10 +266,10 @@ async function sendCharacterThoughts(character, text) {
 
     const bias = extractMessageBias(mesText);
     const isSystem = bias && !removeMacros(mesText).length;
-    const isAsSystem = settings.thoughts_as_system;
+    const isAuthorSystem = settings.is_thoughts_as_system;
 
     const message = {
-        name: isAsSystem ? `${character.name}'s Thoughts` : character.name,
+        name: isAuthorSystem ? substituteParams(settings.system_character_placeholder) : character.name,
         is_user: false,
         is_system: isSystem,
         is_thoughts: true,
@@ -277,7 +277,7 @@ async function sendCharacterThoughts(character, text) {
         send_date: getMessageTimeStamp(),
         mes: substituteParams(mesText),
         extra: {
-            type: isAsSystem ? 'narrator' : undefined,
+            type: isAuthorSystem ? 'narrator' : undefined,
             bias: bias.trim().length ? bias : null,
             gen_id: Date.now(),
             isSmallSys: false,
@@ -299,7 +299,7 @@ async function sendCharacterThoughts(character, text) {
     }];
 
     const context = getContext();
-    if (context.groupId || isAsSystem) {
+    if (context.groupId || isAuthorSystem) {
         message.original_avatar = character.avatar;
         message.force_avatar = context.getThumbnailUrl('avatar', character.avatar);
     }
