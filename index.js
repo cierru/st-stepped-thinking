@@ -19,8 +19,9 @@ import {
 import { ARGUMENT_TYPE, SlashCommandArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { commonEnumProviders } from '../../../slash-commands/SlashCommandCommonEnumsProvider.js';
 import { is_group_generating } from '../../../group-chats.js';
+import { registerGenerationMutexListeners } from './interconnection.js';
 
-const extensionName = 'st-stepped-thinking';
+export const extensionName = 'st-stepped-thinking';
 const extensionFolder = `scripts/extensions/third-party/${extensionName}`;
 
 export let settings = extension_settings[extensionName];
@@ -653,7 +654,6 @@ async function onGenerationAfterCommands(type) {
     }
 
     await runChatThinking($('#send_textarea'));
-
 }
 
 /**
@@ -692,7 +692,7 @@ async function runThinkingCommand(_, name = null) {
         // For some reason, the characterId and characterName are reset after the first thinking prompt generation in the context
         // which leads to throwing an error. I have no desire to untie the generation spaghetti to figure out how to
         // prevent this behavior or add ugly crutches, taking into consideration that it actually WORKS even despite the errors
-        console.error('An error occurred during running thinking process', error);
+        console.error('[Stepped Thinking] An error occurred during running thinking process', error);
     }
 }
 
@@ -723,5 +723,6 @@ jQuery(async () => {
     registerThinkingPromptListeners();
     registerCharacterSettingsListeners();
 
+    registerGenerationMutexListeners();
     registerGenerationEventListeners();
 });

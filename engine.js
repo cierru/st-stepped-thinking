@@ -13,7 +13,8 @@ import {
 } from '../../../../script.js';
 import { hideChatMessageRange } from '../../../chats.js';
 import { getMessageTimeStamp } from '../../../RossAscends-mods.js';
-import { settings } from './index.js';
+import { extensionName, settings } from './index.js';
+import { generationCaptured, releaseGeneration } from './interconnection.js';
 
 let isThinking = false;
 let toastThinking, sendTextareaOriginalPlaceholder;
@@ -36,9 +37,9 @@ export function getCurrentCharacterSettings() {
  */
 export async function generationDelay() {
     if (settings.generation_delay > 0.0) {
-        console.log('Delaying generation for', settings.generation_delay, 'seconds');
+        console.log('[Stepped Thinking] Delaying generation for', settings.generation_delay, 'seconds');
         await new Promise(resolve => setTimeout(resolve, settings.generation_delay * 1000));
-        console.log('Generation delay complete');
+        console.log('[Stepped Thinking] Generation delay complete');
     }
 }
 
@@ -57,6 +58,8 @@ export function stopThinking(textarea) {
     if (sendTextareaOriginalPlaceholder) {
         textarea.attr('placeholder', sendTextareaOriginalPlaceholder);
     }
+
+    releaseGeneration();
 }
 
 /**
@@ -81,6 +84,9 @@ export async function runChatThinking(textarea) {
  * @return {Promise<void>}
  */
 export async function runThinking(textarea) {
+    if (!generationCaptured()) {
+        return;
+    }
     isThinking = true;
 
     try {
@@ -92,6 +98,7 @@ export async function runThinking(textarea) {
         await hideThoughts();
     } finally {
         isThinking = false;
+        releaseGeneration();
     }
 }
 
@@ -282,8 +289,9 @@ async function sendCharacterThoughts(character, text) {
             gen_id: Date.now(),
             isSmallSys: false,
             api: 'script',
-            model: 'stepped executing',
+            model: 'stepped thinking',
         },
+        owner_extension: extensionName,
     };
 
     message.swipe_id = 0;
@@ -294,7 +302,7 @@ async function sendCharacterThoughts(character, text) {
             gen_id: message.extra.gen_id,
             isSmallSys: false,
             api: 'script',
-            model: 'stepped executing',
+            model: 'stepped thinking',
         },
     }];
 

@@ -1,6 +1,6 @@
 {
   "display_name": "Stepped Thinking",
-  "loading_order": 1,
+  "loading_order": 2,
   "requires": [],
   "optional": [],
   "js": "index.js",
