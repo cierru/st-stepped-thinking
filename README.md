@@ -21,9 +21,11 @@ prompt generation. This increases the overall waiting time for a response in fav
 
 ### Planned
 
-1. Handling swipes on generated thoughts.
-2. Presets for thinking prompts.
-3. Localization in Russian.
+1. New UI for thoughts.
+2. Regeneration of selected thoughts.
+3. "On-Click" mode for generating thoughts.
+4. Presets for thinking prompts.
+5. Localization in Russian.
 
 ## Installation and Usage
 
@@ -46,10 +48,7 @@ extension: https://github.com/cierru/st-stepped-thinking
 
 There is an example of how the result may look like:
 
-![sample dialog](img/sample_dialog.jpg)
-
-You can also run the thinking process with the `/stepthink-trigger` command in solo chats. In group chats, specify the
-thinking character’s name after the command, for example: `/stepthink-trigger Seraphina`.
+![sample_dialog](https://github.com/user-attachments/assets/eafe50ce-6904-40e8-aecf-f321cdaabdea)
 
 ### Settings
 
@@ -60,29 +59,44 @@ You can find the extension settings in the `Stepped Thinking` section of the Sil
 Starting from version 2, you can access personal character settings via the bubble icon to the left of the star. The
 icon is white by default, but when the setting is active, it turns green.
 
-![character settings](img/character_settings.jpg)
+![character_settings](https://github.com/user-attachments/assets/f6839807-733d-4abe-91f7-c28cbf336716)
 
 These settings will override the general ones when active. For example, you can disable Stepped Thinking activation for
 a particular character or use specific thinking prompts for them. If the `Prompts for thinking` section is empty in the
 character's settings, the general prompts will be used.
 
-![character settings popup](img/character_settings_popup.jpg)
+![character_settings_popup](https://github.com/user-attachments/assets/133a8f71-4f7c-41ce-b23a-4a06150d1f8a)
 
 Click `Activate` to apply the specified settings, or `Deactivate` to disable them and use the general ones instead. You
 can find the full list of active character settings in the regular Stepped Thinking settings menu under the `Character
 Settings` block.
 
-#### Settings outside the UI
+### Slash commands
 
-There are also several settings in `data/default-user/settings.json` of SillyTavern that are not presented in the UI.
-You probably don't want to change them, however there is a list of the settings just in case:
+#### /stepthink-trigger
 
-* **thoughts_framing** - characters to enclose thought blocks.
-* **thoughts_placeholder** - a placeholder template for the thought blocks container.
-* **default_thoughts_substitution** - a stub to put into a thought block while thinking is in progress.
-* **thinking_summary_placeholder** - the header of spoilers in thought blocks.
-* **max_hiding_thoughts_lookup** - the maximum number of messages to look up for thoughts to hide.
-* **system_character_placeholder** - a placeholder for the character's name when thoughts are sent as System.
+This command is designed to manually trigger the thought generation process. It accepts one optional argument — the name of the character for whom the process will be launched, which is particularly useful for group chats.
+
+**Examples:**
+- `/stepthink-trigger` — triggers thought generation for your companion in solo chats.
+- `/stepthink-trigger Seraphina` — triggers thought generation for Seraphina.
+
+#### /stepthink-delete-hidden
+
+This command is intended to purge your chat of hidden thought messages. It also accepts an optional argument — the name of the character whose thoughts will be removed.  
+**Be cautious:** This action cannot be undone!
+
+**Examples:**
+- `/stepthink-delete-hidden` — removes all hidden thoughts in the current chat.
+- `/stepthink-delete-hidden Seraphina` — removes all hidden thoughts belonging to Seraphina in the current chat.
+
+### Enhancing your experience
+
+Visit [the wiki](https://github.com/cierru/st-stepped-thinking/wiki) for various useful pages, such as:
+
+1. [Community-suggested thinking prompts](https://github.com/cierru/st-stepped-thinking/wiki/Prompts-for-thinking).
+2. A guide to [embed thought message blocks](https://github.com/cierru/st-stepped-thinking/wiki/Embedding-blocks-with-thoughts-in-messages) into regular messages.
+3. Instructions for [creating a button to trigger thoughts generation](https://github.com/cierru/st-stepped-thinking/wiki/Creating-a-button-to-generate-thoughts-on-demand) on demand.
 
 ## Prerequisites
 

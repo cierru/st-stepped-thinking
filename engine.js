@@ -8,7 +8,6 @@ import {
     removeMacros,
     saveChatConditional,
     sendMessageAsUser,
-    substituteParams,
     updateMessageBlock,
 } from '../../../../script.js';
 import { hideChatMessageRange } from '../../../chats.js';
@@ -24,7 +23,7 @@ let toastThinking, sendTextareaOriginalPlaceholder;
  */
 export function getCurrentCharacterSettings() {
     const context = getContext();
-    if (!context.characterId) {
+    if (!Number.isInteger(Number(context.characterId))) {
         return;
     }
 
@@ -208,13 +207,13 @@ async function sendCharacterTemplateMessage() {
     const context = getContext();
     const openState = settings.is_thoughts_spoiler_open ? 'open' : '';
 
+    const thoughtsMessage = settings.thoughts_message_template
+        .replace('{{thoughts_spoiler_open_state}}', openState)
+        .replace('{{thoughts_placeholder}}', replaceThoughtsPlaceholder(settings.thoughts_placeholder.default_content));
+
     return await sendCharacterThoughts(
         context.characters[context.characterId],
-        '<details type="executing" ' + openState + '><summary>' +
-        settings.thinking_summary_placeholder +
-        '</summary>' + '\n' +
-        replaceThoughtsPlaceholder(settings.default_thoughts_substitution) + '\n'
-        + '</details>',
+        thoughtsMessage
     );
 }
 
@@ -247,13 +246,22 @@ async function insertCharacterThoughtsAt(position, thoughts) {
         return;
     }
     const message = context.chat[position];
-    const defaultPlaceholder = replaceThoughtsPlaceholder(settings.default_thoughts_substitution);
+    const defaultPlaceholder = replaceThoughtsPlaceholder(settings.thoughts_placeholder.default_content);
 
-    if (message.mes.search(defaultPlaceholder) !== -1) {
+    const isFirstThought = (message) => message.mes.search(defaultPlaceholder) !== -1;
+
+    if (isFirstThought(message)) {
         message.mes = message.mes.replace(defaultPlaceholder, replaceThoughtsPlaceholder(thoughts));
     } else {
-        const lastThoughtLastIndex = message.mes.lastIndexOf(settings.thoughts_framing) + settings.thoughts_framing.length;
-        message.mes = message.mes.substring(0, lastThoughtLastIndex) + '\n' + replaceThoughtsPlaceholder(thoughts) + message.mes.substring(lastThoughtLastIndex);
+        const lastThoughtEndIndex = message.mes.lastIndexOf(settings.thoughts_placeholder.end);
+
+        if (lastThoughtEndIndex !== -1) {
+            const indexToInsert = lastThoughtEndIndex + settings.thoughts_placeholder.end.length;
+            message.mes = message.mes.substring(0, indexToInsert) + '\n' + replaceThoughtsPlaceholder(thoughts) + message.mes.substring(indexToInsert);
+        } else {
+            console.debug('[Stepped Thinking] Unable to locate the end of the previous thought, inserting a new thought at the end of the message');
+            message.mes += '\n' + replaceThoughtsPlaceholder(thoughts);
+        }
     }
 
     updateMessageBlock(position, message);
@@ -267,6 +275,8 @@ async function insertCharacterThoughtsAt(position, thoughts) {
  * @return {Promise<number>}
  */
 async function sendCharacterThoughts(character, text) {
+    const context = getContext();
+
     let mesText;
 
     mesText = text.trim();
@@ -276,13 +286,13 @@ async function sendCharacterThoughts(character, text) {
     const isAuthorSystem = settings.is_thoughts_as_system;
 
     const message = {
-        name: isAuthorSystem ? substituteParams(settings.system_character_placeholder) : character.name,
+        name: isAuthorSystem ? context.substituteParams(settings.system_character_name_template) : character.name,
         is_user: false,
         is_system: isSystem,
         is_thoughts: true,
         thoughts_for: character.name,
         send_date: getMessageTimeStamp(),
-        mes: substituteParams(mesText),
+        mes: context.substituteParams(mesText),
         extra: {
             type: isAuthorSystem ? 'narrator' : undefined,
             bias: bias.trim().length ? bias : null,
@@ -306,7 +316,6 @@ async function sendCharacterThoughts(character, text) {
         },
     }];
 
-    const context = getContext();
     if (context.groupId || isAuthorSystem) {
         message.original_avatar = character.avatar;
         message.force_avatar = context.getThumbnailUrl('avatar', character.avatar);
@@ -329,7 +338,9 @@ async function sendCharacterThoughts(character, text) {
  * @return {string}
  */
 function replaceThoughtsPlaceholder(substitution) {
-    const thoughtsPlaceholder = settings.thoughts_framing + settings.thoughts_placeholder + settings.thoughts_framing;
+    const thoughtsPlaceholder = settings.thoughts_placeholder.start
+        + settings.thoughts_placeholder.content
+        + settings.thoughts_placeholder.end;
     return thoughtsPlaceholder.replace('{{thoughts}}', substitution);
 }
 

@@ -33,7 +33,7 @@
 
             <div class="flex-container marginTopBot5">
                 <label class="checkbox_label expander" for="stepthink_is_thoughts_as_system"
-                       title="Include character thoughts messages as the System role.">
+                       title="Include character thoughts messages as the System role">
                     <input id="stepthink_is_thoughts_as_system" type="checkbox"/>
                     Thoughts as System
                 </label>
@@ -103,6 +103,80 @@
                             Delay generation requests (seconds):
                         </label>
                         <input type="number" id="stepthink_generation_delay" class="text_pole" min="0"/>
+                    </div>
+                </div>
+
+                <div class="flex-container marginTopBot5">
+                    <div class="flex-container flex1"
+                         title="This number defines the maximum messages inspected, starting from the last one, to determine which thoughts will be hidden">
+                        <label for="stepthink_max_hiding_thoughts_lookup">
+                            Maximum messages to inspect for hiding:
+                        </label>
+                        <input type="number" id="stepthink_max_hiding_thoughts_lookup" class="text_pole" min="0"/>
+                    </div>
+                </div>
+
+                <div class="flex-container marginTopBot5">
+                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1"
+                         title="This name will be used when thoughts are sent from the System role">
+                        <label for="stepthink_system_character_name_template">
+                            System name template:
+                        </label>
+                        <input type="text" id="stepthink_system_character_name_template" class="text_pole textarea_compact"/>
+                    </div>
+                </div>
+
+                <div class="flex-container marginTopBot5">
+                    <div class="flex-container flexFlowColumn flex1">
+                        <div class="flex-container flexFlowRow alignItemsStart justifySpaceBetween">
+                            <label title="A set of fields used to fill the {{thoughts_placeholder}} macro">
+                                Thoughts placeholder:
+                            </label>
+                            <div id="stepthink_restore_thoughts_placeholder" class="menu_button margin0" title="Restore default thoughts placeholder">Default</div>
+                        </div>
+
+                        <div class="flex-container flexFlowColumn">
+                            <div class="flex-container flexFlowRow">
+                                <div class="flex-container flexFlowRow alignItemsCenter">
+                                    <small title="The beginning of a thought block">
+                                        Start:
+                                    </small>
+                                    <input type="text" id="stepthink_thoughts_placeholder_start" class="text_pole textarea_compact"/>
+                                </div>
+                                <div class="flex-container flexFlowRow alignItemsCenter marginLeft5">
+                                    <small title="The placeholder that is used when thinking generation is in progress">
+                                        Default:
+                                    </small>
+                                    <input type="text" id="stepthink_thoughts_placeholder_default_content" class="text_pole textarea_compact"/>
+                                </div>
+                                <div class="flex-container flexFlowRow alignItemsCenter marginLeft5">
+                                    <small title="The end of a thought block. Be careful: this string must be unique and should not appear within thoughts! Otherwise, the extension may behave unpredictably">
+                                        End:
+                                    </small>
+                                    <input type="text" id="stepthink_thoughts_placeholder_end" class="text_pole textarea_compact"/>
+                                </div>
+                            </div>
+                            <div class="flex-container">
+                                <div class="flex-container flexFlowRow alignItemsCenter width100p">
+                                    <small title="The content of a thought block after the thought is generated. Additional macros: {{thoughts}}">
+                                        Content:
+                                    </small>
+                                    <textarea id="stepthink_thoughts_placeholder_content" class="text_pole textarea_compact" rows="3"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <div class="flex-container marginTopBot5">
+                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1"
+                         title="This name will be used when thoughts are sent from the System role. Additional macros: {{thoughts_spoiler_open_state}}, {{thoughts_placeholder}}">
+                        <label for="stepthink_thoughts_message_template">
+                            Template for a thoughts message:
+                        </label>
+                        <div id="stepthink_restore_thoughts_message_template" class="menu_button margin0" title="Restore default thoughts message template">Default</div>
+                        <textarea id="stepthink_thoughts_message_template" class="text_pole textarea_compact" rows="6"></textarea>
                     </div>
                 </div>
 

@@ -2,6 +2,8 @@ import { extension_settings, getContext, renderExtensionTemplateAsync } from '..
 import {
     event_types,
     eventSource,
+    reloadCurrentChat,
+    saveChatConditional,
     saveSettingsDebounced,
     setCharacterId,
     setCharacterName,
@@ -25,21 +27,19 @@ export const extensionName = 'st-stepped-thinking';
 const extensionFolder = `scripts/extensions/third-party/${extensionName}`;
 
 export let settings = extension_settings[extensionName];
+const defaultSettings = () => Object.assign({},
+    defaultCommonSettings,
+    defaultThinkingPromptSettings,
+    defaultCharactersSettings
+);
 
 async function loadSettings() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
+    setDefaultsForUndefined(extension_settings[extensionName]);
 
-    if (Object.keys(extension_settings[extensionName]).length === 0) {
-        Object.assign(
-            extension_settings[extensionName],
-            defaultCommonSettings,
-            defaultThinkingPromptSettings,
-            defaultCharactersSettings,
-        );
-    }
     settings = extension_settings[extensionName];
 
-    migrateOutdatedSettingsV2(settings);
+    migrateSettingsV2(settings);
 
     loadCommonSettings();
     loadThinkingPromptSettings();
@@ -47,16 +47,26 @@ async function loadSettings() {
 }
 
 /**
+ * @param {object} settings
+ */
+function setDefaultsForUndefined(settings) {
+    const defaults = defaultSettings();
+
+    for (let settingKey in defaults) {
+        if (settings[settingKey] === undefined) {
+            settings[settingKey] = defaults[settingKey];
+        }
+    }
+}
+
+/**
  * This is a temporary function that will be removed in v3
  *
  * @param {object} settings
  */
-function migrateOutdatedSettingsV2(settings) {
-    if (settings.is_thoughts_as_system === undefined && settings.thoughts_as_system !== undefined) {
-        settings.is_thoughts_as_system = settings.thoughts_as_system;
-    }
-    if (settings.system_character_placeholder === undefined) {
-        settings.system_character_placeholder = defaultCommonSettings.system_character_placeholder;
+function migrateSettingsV2(settings) {
+    if (typeof settings.thoughts_placeholder === 'string') {
+        settings.thoughts_placeholder = defaultCommonSettings.thoughts_placeholder;
     }
 }
 
@@ -72,14 +82,17 @@ export const defaultCommonSettings = {
     'generation_delay': 0.0,
     'max_response_length': 0,
     'regexp_to_sanitize': '(<\\/?details\\s?(type="executing")?>)|(<\\/?summary>)|(Thinking ({{char}}) 💭)|(```)',
-
-    // Not in UI, since the settings are unlikely to be changed
-    'thoughts_framing': '```',
-    'thoughts_placeholder': 'md\n{{thoughts}}\n',
-    'default_thoughts_substitution': '...',
-    'thinking_summary_placeholder': 'Thinking ({{char}}) 💭',
-    'system_character_placeholder': '{{char}}\'s Thoughts',
-    'max_hiding_thoughts_lookup': 200,
+    'max_hiding_thoughts_lookup': 1000,
+    'system_character_name_template': '{{char}}\'s Thoughts',
+    'thoughts_message_template': '<details type="executing" {{thoughts_spoiler_open_state}}><summary>Thinking ({{char}}) 💭</summary>\n' +
+        '{{thoughts_placeholder}}\n' +
+        '</details>',
+    'thoughts_placeholder': {
+        'start': '```md',
+        'content': '\n{{thoughts}}\n',
+        'default_content': '...',
+        'end': '```',
+    },
 };
 
 /**
@@ -87,14 +100,22 @@ export const defaultCommonSettings = {
  */
 export function loadCommonSettings() {
     $('#stepthink_regexp_to_sanitize').val(settings.regexp_to_sanitize);
+    $('#stepthink_system_character_name_template').val(settings.system_character_name_template);
+    $('#stepthink_thoughts_message_template').val(settings.thoughts_message_template);
     $('#stepthink_max_thoughts_in_prompt').val(settings.max_thoughts_in_prompt);
     $('#stepthink_max_response_length').val(settings.max_response_length);
     $('#stepthink_generation_delay').val(settings.generation_delay);
+    $('#stepthink_max_hiding_thoughts_lookup').val(settings.max_hiding_thoughts_lookup);
     $('#stepthink_is_enabled').prop('checked', settings.is_enabled).trigger('input');
     $('#stepthink_is_wian_skipped').prop('checked', settings.is_wian_skipped).trigger('input');
     $('#stepthink_is_thoughts_spoiler_open').prop('checked', settings.is_thoughts_spoiler_open).trigger('input');
     $('#stepthink_is_thinking_popups_enabled').prop('checked', settings.is_thinking_popups_enabled).trigger('input');
     $('#stepthink_is_thoughts_as_system').prop('checked', settings.is_thoughts_as_system).trigger('input');
+
+    $('#stepthink_thoughts_placeholder_start').val(settings.thoughts_placeholder.start);
+    $('#stepthink_thoughts_placeholder_content').val(settings.thoughts_placeholder.content);
+    $('#stepthink_thoughts_placeholder_default_content').val(settings.thoughts_placeholder.default_content);
+    $('#stepthink_thoughts_placeholder_end').val(settings.thoughts_placeholder.end);
 }
 
 /**
@@ -106,14 +127,33 @@ export function registerCommonSettingListeners() {
     $('#stepthink_is_thoughts_spoiler_open').on('input', onCheckboxInput('is_thoughts_spoiler_open'));
     $('#stepthink_is_thinking_popups_enabled').on('input', onCheckboxInput('is_thinking_popups_enabled'));
     $('#stepthink_is_thoughts_as_system').on('input', onCheckboxInput('is_thoughts_as_system'));
-    $('#stepthink_regexp_to_sanitize').on('input', onRegexpToSanitizeChanged);
+    $('#stepthink_regexp_to_sanitize').on('input', onTextareaInput('regexp_to_sanitize'));
+    $('#stepthink_system_character_name_template').on('input', onTextareaInput('system_character_name_template'));
+    $('#stepthink_thoughts_message_template').on('input', onTextareaInput('thoughts_message_template'));
     $('#stepthink_max_thoughts_in_prompt').on('input', onIntegerTextareaInput('max_thoughts_in_prompt'));
     $('#stepthink_max_response_length').on('input', onIntegerTextareaInput('max_response_length'));
     $('#stepthink_generation_delay').on('input', onGenerationDelayInput);
+    $('#stepthink_max_hiding_thoughts_lookup').on('input', onIntegerTextareaInput('max_hiding_thoughts_lookup'));
+
+    $('#stepthink_thoughts_placeholder_start').on('input', onTextareaInput('thoughts_placeholder', 'start'));
+    $('#stepthink_thoughts_placeholder_content').on('input', onTextareaInput('thoughts_placeholder', 'content'));
+    $('#stepthink_thoughts_placeholder_default_content').on('input', onTextareaInput('thoughts_placeholder', 'default_content'));
+    $('#stepthink_thoughts_placeholder_end').on('input', onTextareaInput('thoughts_placeholder', 'end'));
 
     $('#stepthink_additional_settings_toggle').on('click', () => $('#stepthink_additional_settings').slideToggle(200, 'swing'));
+
     $('#stepthink_restore_regexp_to_sanitize').on('click', () =>
-        $('#stepthink_regexp_to_sanitize').val(defaultCommonSettings.regexp_to_sanitize).trigger('input'),
+        $('#stepthink_regexp_to_sanitize').val(defaultCommonSettings.regexp_to_sanitize).trigger('input')
+    );
+    $('#stepthink_restore_thoughts_message_template').on('click', () =>
+        $('#stepthink_thoughts_message_template').val(defaultCommonSettings.thoughts_message_template).trigger('input')
+    );
+    $('#stepthink_restore_thoughts_placeholder').on('click', () => {
+            $('#stepthink_thoughts_placeholder_start').val(defaultCommonSettings.thoughts_placeholder.start).trigger('input');
+            $('#stepthink_thoughts_placeholder_content').val(defaultCommonSettings.thoughts_placeholder.content).trigger('input');
+            $('#stepthink_thoughts_placeholder_default_content').val(defaultCommonSettings.thoughts_placeholder.default_content).trigger('input');
+            $('#stepthink_thoughts_placeholder_end').val(defaultCommonSettings.thoughts_placeholder.end).trigger('input');
+        },
     );
 }
 
@@ -153,19 +193,30 @@ function onIntegerTextareaInput(settingName) {
 }
 
 /**
- * @return {void}
+ * @param {string[]} settingNames
+ * @return {(function(): void)}
  */
-function onRegexpToSanitizeChanged() {
-    settings.regexp_to_sanitize = $(this).val();
-    saveSettingsDebounced();
+function onTextareaInput(...settingNames) {
+    return function () {
+        const lastSettingId = settingNames.length - 1;
+        const lastSetting = settingNames[lastSettingId];
+
+        let subSettings = settings;
+        for (let i = 0; i < lastSettingId; i++) {
+            subSettings = subSettings[settingNames[i]];
+        }
+
+        subSettings[lastSetting] = $(this).val();
+        saveSettingsDebounced();
+    };
 }
 
 /**
  * @return {void}
  */
 function onGenerationDelayInput() {
-    const value = parseFloat($(this).val());
-    if (isNaN(value) || value < 0.0) {
+    const value = Number($(this).val());
+    if (Number.isNaN(value) || value < 0.0) {
         return;
     }
 
@@ -260,6 +311,7 @@ function watchButtonVisibility(characterMenuButton) {
  * @return {void}
  */
 function toggleCharacterMenuButtonHighlight(characterMenuButton) {
+    console.log('getCurrentCharacterSettings()', getCurrentCharacterSettings());
     if (getCurrentCharacterSettings()?.is_setting_enabled) {
         characterMenuButton.classList.add('toggleEnabled');
     } else {
@@ -668,12 +720,13 @@ async function onGenerationStopped() {
 /**
  * @param {object} _
  * @param {string?} name
- * @return {Promise<void>}
+ * @return {Promise<string>}
  */
-async function runThinkingCommand(_, name = null) {
+async function runThinkingCommand(_, name = '') {
     const context = getContext();
 
-    if (!name && !context.characterId) {
+    // TODO: implement a popup to select a character
+    if (context.groupId && !name && !Number.isInteger(Number(context.characterId))) {
         throw new Error('Unknown character to generate thoughts. Please, specify one with passing the name argument');
     }
     if (name) {
@@ -694,6 +747,8 @@ async function runThinkingCommand(_, name = null) {
         // prevent this behavior or add ugly crutches, taking into consideration that it actually WORKS even despite the errors
         console.error('[Stepped Thinking] An error occurred during running thinking process', error);
     }
+
+    return '';
 }
 
 SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -707,7 +762,53 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             enumProvider: commonEnumProviders.groupMembers,
         }),
     ],
-    helpString: 'Trigger Stepped Thinking via command/QR.',
+    helpString: 'Trigger Stepped Thinking.',
+}));
+
+/**
+ * @param {object} _
+ * @param {string?} name
+ * @return {Promise<string>}
+ */
+async function deleteHiddenThoughts(_, name = '') {
+    const context = getContext();
+    const messagesToDelete = [];
+
+    context.chat.forEach(message => {
+        if (message.is_thoughts && message.is_system && (!name || message.name === name)) {
+            messagesToDelete.push(message);
+        }
+    });
+
+    for (const message of messagesToDelete) {
+        const index = context.chat.indexOf(message);
+        if (index !== -1) {
+            console.debug(`[Stepped Thinking] Deleting thoughts at #${index}`, message);
+            context.chat.splice(index, 1);
+        }
+    }
+
+    await saveChatConditional();
+    await reloadCurrentChat();
+
+    const deletionResultInfo = `Deleted ${messagesToDelete.length} thoughts`;
+    toastr.info(name ? deletionResultInfo + ` from ${name}` : deletionResultInfo, 'Stepped Thinking');
+
+    return '';
+}
+
+SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+    name: 'stepthink-delete-hidden',
+    callback: deleteHiddenThoughts,
+    unnamedArgumentList: [
+        SlashCommandArgument.fromProps({
+            description: 'character name',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: false,
+            enumProvider: commonEnumProviders.groupMembers,
+        }),
+    ],
+    helpString: 'Delete hidden thoughts.',
 }));
 
 jQuery(async () => {
