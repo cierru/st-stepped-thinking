@@ -75,18 +75,31 @@ Settings` block.
 
 #### /stepthink-trigger
 
-This command is designed to manually trigger the thought generation process. It accepts one optional argument — the name of the character for whom the process will be launched, which is particularly useful for group chats.
+This command is designed to manually trigger the thought generation process. It accepts two optional arguments:
+
+1. `prompt_ids` – the comma-separated IDs of thinking prompts that will be used for generation. Currently, the only way
+   to extract the IDs is by looking through the `st-stepped-thinking` section in the `settings.json` file, which is
+   typically located at `SillyTavern\data\default-user`. This is a temporary workaround until named thinking prompts are
+   released.
+
+   **Note:** The default IDs are `0` for thoughts and `1` for plans.
+2. The name of the character for whom the process will be launched, which is particularly useful for group chats.
 
 **Examples:**
+
 - `/stepthink-trigger` — triggers thought generation for your companion in solo chats.
 - `/stepthink-trigger Seraphina` — triggers thought generation for Seraphina.
+- `/stepthink-trigger prompt_ids=0,1 Seraphina` - trigger thought generation using prompts with IDs `0` and `1` for
+  Seraphina.
 
 #### /stepthink-delete-hidden
 
-This command is intended to purge your chat of hidden thought messages. It also accepts an optional argument — the name of the character whose thoughts will be removed.  
+This command is intended to purge your chat of hidden thought messages. It also accepts one optional argument - the name
+of the character whose thoughts will be removed.  
 **Be cautious:** This action cannot be undone!
 
 **Examples:**
+
 - `/stepthink-delete-hidden` — removes all hidden thoughts in the current chat.
 - `/stepthink-delete-hidden Seraphina` — removes all hidden thoughts belonging to Seraphina in the current chat.
 
@@ -95,8 +108,12 @@ This command is intended to purge your chat of hidden thought messages. It also 
 Visit [the wiki](https://github.com/cierru/st-stepped-thinking/wiki) for various useful pages, such as:
 
 1. [Community-suggested thinking prompts](https://github.com/cierru/st-stepped-thinking/wiki/Prompts-for-thinking).
-2. A guide to [embed thought message blocks](https://github.com/cierru/st-stepped-thinking/wiki/Embedding-blocks-with-thoughts-in-messages) into regular messages.
-3. Instructions for [creating a button to trigger thoughts generation](https://github.com/cierru/st-stepped-thinking/wiki/Creating-a-button-to-generate-thoughts-on-demand) on demand.
+2. A guide
+   to [embed thought message blocks](https://github.com/cierru/st-stepped-thinking/wiki/Embedding-blocks-with-thoughts-in-messages)
+   into regular messages.
+3. Instructions
+   for [creating a button to trigger thoughts generation](https://github.com/cierru/st-stepped-thinking/wiki/Creating-a-button-to-generate-thoughts-on-demand)
+   on demand.
 
 ## Prerequisites
 
@@ -106,8 +123,8 @@ The extension has been tested on SillyTavern 1.12.6+ and may not work with older
 
 You are always welcome to contribute to this project. You may create issues, pull requests,
 and describe them in English or Russian - whatever is more convenient for you. However, if you want to propose a feature
-that is not in the "Planned"
-section of the README file, please describe your request and reasoning in as much detail as possible.
+that is not in the "Planned" section of the README file, please describe your request and reasoning in as much detail as
+possible.
 
 Feel free to share your thinking prompts in an issue or any other way - they’re very useful for the community!
 

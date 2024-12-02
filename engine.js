@@ -80,9 +80,10 @@ export async function runChatThinking(textarea) {
 
 /**
  * @param {JQuery<HTMLTextAreaElement>} textarea
+ * @param {array?} targetPromptIds
  * @return {Promise<void>}
  */
-export async function runThinking(textarea) {
+export async function runThinking(textarea, targetPromptIds = null) {
     if (!generationCaptured()) {
         return;
     }
@@ -92,7 +93,7 @@ export async function runThinking(textarea) {
         await sendUserMessage(textarea);
 
         await hideThoughts();
-        await generateThoughtsWithDisabledInput(textarea);
+        await generateThoughtsWithDisabledInput(textarea, targetPromptIds);
 
         await hideThoughts();
     } finally {
@@ -154,15 +155,16 @@ async function hideThoughts() {
  * want their input to be suddenly sent when the character finishes thinking, the input field is disabled during the process
  *
  * @param {JQuery<HTMLTextAreaElement>} textarea
+ * @param {array?} targetPromptIds
  * @return {Promise<void>}
  */
-async function generateThoughtsWithDisabledInput(textarea) {
+async function generateThoughtsWithDisabledInput(textarea, targetPromptIds = null) {
     sendTextareaOriginalPlaceholder = textarea.attr('placeholder');
     textarea.attr('placeholder', 'When a character is thinking, the input area is disabled');
     textarea.prop('readonly', true);
     textarea.val('')[0].dispatchEvent(new Event('input', { bubbles: true }));
 
-    await generateThoughts();
+    await generateThoughts(targetPromptIds);
 
     textarea.prop('readonly', false);
     textarea.attr('placeholder', sendTextareaOriginalPlaceholder);
@@ -170,9 +172,10 @@ async function generateThoughtsWithDisabledInput(textarea) {
 }
 
 /**
+ * @param {array?} targetPromptIds
  * @return {Promise<void>}
  */
-async function generateThoughts() {
+async function generateThoughts(targetPromptIds = null) {
     const context = getContext();
     const characterThoughtsPosition = await sendCharacterTemplateMessage();
 
@@ -181,9 +184,11 @@ async function generateThoughts() {
         toastThinking = toastr.info(toastThinkingMessage, 'Stepped Thinking', { timeOut: 0, extendedTimeOut: 0 });
     }
 
+    const isInTargetPrompts = (promptId) => !targetPromptIds || targetPromptIds.includes(String(promptId));
+
     const prompts = getCurrentCharacterPrompts();
     for (let i = 0; i < prompts.length; i++) {
-        if (prompts[i]?.prompt) {
+        if (prompts[i]?.prompt && isInTargetPrompts(prompts[i].id)) {
             const thoughts = await generateCharacterThoughts(prompts[i].prompt);
             await insertCharacterThoughtsAt(characterThoughtsPosition, thoughts);
 

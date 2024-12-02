@@ -18,7 +18,11 @@ import {
     runThinking,
     stopThinking,
 } from './engine.js';
-import { ARGUMENT_TYPE, SlashCommandArgument } from '../../../slash-commands/SlashCommandArgument.js';
+import {
+    ARGUMENT_TYPE,
+    SlashCommandArgument,
+    SlashCommandNamedArgument,
+} from '../../../slash-commands/SlashCommandArgument.js';
 import { commonEnumProviders } from '../../../slash-commands/SlashCommandCommonEnumsProvider.js';
 import { is_group_generating } from '../../../group-chats.js';
 import { registerGenerationMutexListeners } from './interconnection.js';
@@ -311,7 +315,6 @@ function watchButtonVisibility(characterMenuButton) {
  * @return {void}
  */
 function toggleCharacterMenuButtonHighlight(characterMenuButton) {
-    console.log('getCurrentCharacterSettings()', getCurrentCharacterSettings());
     if (getCurrentCharacterSettings()?.is_setting_enabled) {
         characterMenuButton.classList.add('toggleEnabled');
     } else {
@@ -718,11 +721,11 @@ async function onGenerationStopped() {
 //
 
 /**
- * @param {object} _
+ * @param {object} input
  * @param {string?} name
  * @return {Promise<string>}
  */
-async function runThinkingCommand(_, name = '') {
+async function runThinkingCommand(input, name = '') {
     const context = getContext();
 
     // TODO: implement a popup to select a character
@@ -739,8 +742,10 @@ async function runThinkingCommand(_, name = '') {
         setCharacterName(name);
     }
 
+    let targetPromptIds = input.prompt_ids ? input.prompt_ids.split(',') : null;
+
     try {
-        await runThinking($('#send_textarea'));
+        await runThinking($('#send_textarea'), targetPromptIds);
     } catch (error) {
         // For some reason, the characterId and characterName are reset after the first thinking prompt generation in the context
         // which leads to throwing an error. I have no desire to untie the generation spaghetti to figure out how to
@@ -760,6 +765,14 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             typeList: [ARGUMENT_TYPE.STRING],
             isRequired: false,
             enumProvider: commonEnumProviders.groupMembers,
+        }),
+    ],
+    namedArgumentList: [
+        SlashCommandNamedArgument.fromProps({
+            name: 'prompt_ids',
+            description: 'comma-separated prompt ids, e.g., prompt_ids=1,2',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: false,
         }),
     ],
     helpString: 'Trigger Stepped Thinking.',
