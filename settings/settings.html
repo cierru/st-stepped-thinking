@@ -5,11 +5,26 @@
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <div class="flex-container marginTopBot5">
-                <label class="checkbox_label expander" for="stepthink_is_enabled">
-                    <input id="stepthink_is_enabled" type="checkbox"/>
-                    Enable Stepped Thinking
-                </label>
+            <div class="flex-container justifySpaceBetween flexFlowRow">
+                <div class="flex-container marginTopBot5">
+                    <label class="checkbox_label expander" for="stepthink_is_enabled"
+                        title="Trigger thoughts generation every time a new message is generated">
+                        <input id="stepthink_is_enabled" type="checkbox"/>
+                        Enable thinking on each message
+                    </label>
+                </div>
+
+                <div class="flex-container marginTopBot5 indent20p">
+                    <div id="stepthink_is_shutdown" class="menu_button margin0 fa-solid fa-power-off stepthink_mode_embedded"
+                         title="Completely shut down/turn on the extension, including hiding/revealing already existing thoughts. The page will be reloaded">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-container alignItemsCenter">
+                Thinking mode:
+                <select id="stepthink_mode" class="text_pole widthNatural">
+                </select>
             </div>
 
             <hr/>
@@ -31,12 +46,21 @@
                 </label>
             </div>
 
-            <div class="flex-container marginTopBot5">
+            <div class="flex-container marginTopBot5 stepthink_mode_separated">
                 <label class="checkbox_label expander" for="stepthink_is_thoughts_as_system"
                        title="Include character thoughts messages as the System role">
                     <input id="stepthink_is_thoughts_as_system" type="checkbox"/>
                     Thoughts as System
                 </label>
+            </div>
+
+            <div class="flex-container alignItemsCenter marginTopBot5 stepthink_mode_embedded">
+                Role for sending thoughts:
+                <select id="stepthink_sending_thoughts_role" class="text_pole widthNatural">
+                    <option value="0">System</option>
+                    <option value="1">User</option>
+                    <option value="2">Assistant</option>
+                </select>
             </div>
 
             <hr/>
@@ -45,7 +69,7 @@
                 <div class="flex-container flex1"
                      title="The number of a character's last messages with thoughts that will be included in the generation prompt">
                     <label for="stepthink_max_thoughts_in_prompt">
-                        Number of included thoughts for a character:
+                        Number of last thoughts included in prompt:
                     </label>
                     <input type="number" id="stepthink_max_thoughts_in_prompt" class="text_pole" min="0"/>
                 </div>
@@ -118,15 +142,91 @@
 
                 <div class="flex-container marginTopBot5">
                     <div class="flex-container justifySpaceBetween alignItemsCenter flex1"
-                         title="This name will be used when thoughts are sent from the System role">
-                        <label for="stepthink_system_character_name_template">
+                         title="Often, there are special symbols and other shiza in the generation output; it will be removed by the regexp">
+                        <label for="stepthink_regexp_to_sanitize">
+                            Regexp to sanitize thoughts:
+                        </label>
+                        <div id="stepthink_restore_regexp_to_sanitize" class="menu_button margin0" title="Restore default regexp">Default</div>
+                        <input type="text" id="stepthink_regexp_to_sanitize" class="text_pole textarea_compact"/>
+                    </div>
+                </div>
+
+                <hr/>
+
+                <!-- embedded thoughts -->
+                <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                    <label for="stepthink_thoughts_block_title"
+                           title="This string will be used as a header for the thoughts block. It won't be sent in the prompt">
+                        Thoughts UI block title:
+                    </label>
+                    <input type="text" id="stepthink_thoughts_block_title" class="text_pole textarea_compact"/>
+                </div>
+
+                <div class="flex-container alignItemsCenter stepthink_mode_embedded">
+                    <label for="stepthink_thoughts_prefix_injection_mode"
+                           title='This setting controls when the "Thoughts injection prefix" will be injected. You might want to disable prefix injection for Instruct or Chat Completions modes, or you can use "Import from settings" to automatically determine when prefix injection is required'>
+                        Prefix injection mode:
+                    </label>
+                    <select id="stepthink_thoughts_prefix_injection_mode" class="text_pole widthNatural">
+                        <option value="always">Always</option>
+                        <option value="groups">Only Group chats</option>
+                        <option value="from_instruct">Import from settings</option>
+                        <option value="never">Never</option>
+                    </select>
+                </div>
+
+                <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                    <label for="stepthink_thoughts_injection_prefix"
+                           title="This string will replace the macro {{prefix}} if it is allowed by the prefix injection mode">
+                        Thoughts injection prefix:
+                    </label>
+                    <input type="text" id="stepthink_thoughts_injection_prefix" class="text_pole textarea_compact"/>
+                </div>
+
+                <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1">
+                        <label for="stepthink_general_injection_template"
+                               title="This template will be rendered and passed in the resulting prompt. Additional macros: {{prefix}}, {{thoughts)}}">
+                            General thoughts injection template:
+                        </label>
+                        <textarea id="stepthink_general_injection_template" class="text_pole textarea_compact" rows="3"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1">
+                        <label for="stepthink_thought_injection_template"
+                               title="This template will replace the {{thoughts}} macro in the general template, rendering each thought separated by the specified separator. Additional macros: {{thought}}, {{prompt_name}}, {{prompt_name.toLowerCase()}}">
+                            Thought injection template:
+                        </label>
+                        <div id="stepthink_restore_thought_injection_template" class="menu_button margin0" title="Restore default thought injection template">Default</div>
+                        <textarea id="stepthink_thought_injection_template" class="text_pole textarea_compact" rows="3"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1">
+                        <label for="stepthink_thought_injection_separator"
+                               title="This string will be used to separate thoughts in the prompt">
+                            Thoughts injection separator:
+                        </label>
+                        <textarea id="stepthink_thought_injection_separator" class="text_pole textarea_compact" rows="2"></textarea>
+                    </div>
+                </div>
+                <!-- embedded thoughts -->
+
+                <!-- separated thoughts -->
+                <div class="flex-container marginTopBot5 stepthink_mode_separated">
+                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1">
+                        <label for="stepthink_system_character_name_template"
+                               title="This name will be used when thoughts are sent from the System role">
                             System name template:
                         </label>
                         <input type="text" id="stepthink_system_character_name_template" class="text_pole textarea_compact"/>
                     </div>
                 </div>
 
-                <div class="flex-container marginTopBot5">
+                <div class="flex-container marginTopBot5 stepthink_mode_separated">
                     <div class="flex-container flexFlowColumn flex1">
                         <div class="flex-container flexFlowRow alignItemsStart justifySpaceBetween">
                             <label title="A set of fields used to fill the {{thoughts_placeholder}} macro">
@@ -168,8 +268,7 @@
                     </div>
                 </div>
 
-
-                <div class="flex-container marginTopBot5">
+                <div class="flex-container marginTopBot5 stepthink_mode_separated">
                     <div class="flex-container justifySpaceBetween alignItemsCenter flex1"
                          title="This name will be used when thoughts are sent from the System role. Additional macros: {{thoughts_spoiler_open_state}}, {{thoughts_placeholder}}">
                         <label for="stepthink_thoughts_message_template">
@@ -179,17 +278,7 @@
                         <textarea id="stepthink_thoughts_message_template" class="text_pole textarea_compact" rows="6"></textarea>
                     </div>
                 </div>
-
-                <div class="flex-container marginTopBot5">
-                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1"
-                         title="Often, there are special symbols and other shiza in the generation output; it will be removed by the regexp">
-                        <label for="stepthink_regexp_to_sanitize">
-                            Regexp to sanitize thoughts:
-                        </label>
-                        <div id="stepthink_restore_regexp_to_sanitize" class="menu_button margin0" title="Restore default regexp">Default</div>
-                        <input type="text" id="stepthink_regexp_to_sanitize" class="text_pole textarea_compact"/>
-                    </div>
-                </div>
+                <!-- separated thoughts -->
             </div>
         </div>
     </div>

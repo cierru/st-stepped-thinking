@@ -1,9 +1,119 @@
-#stepthink_prompt_list textarea {
-    flex: 1 1 75%;
-    font-size: calc(var(--mainFontSize) * 0.9);
-    line-height: 1.2;
+.thinking_prompt_container {
+    flex: 1 1 auto;
 }
 
-[id*=stepthink_prompt_item--]{
-    flex-flow: inherit;
+.thoughts {
+    display: flex;
+    align-items: flex-start;
+    padding: 10px;
+    margin-top: 0;
+    width: 100%;
+    color: var(--SmartThemeBodyColor);
+    position: relative;
+}
+
+body.bubblechat .thoughts {
+    border-radius: 10px;
+    background-color: var(--SmartThemeBotMesBlurTintColor);
+    margin-bottom: 0;
+    border: 1px solid var(--SmartThemeBorderColor);
+}
+
+.thoughts_details {
+    width: 100%;
+}
+
+.thought_items {
+    display: none;
+}
+
+.thoughts_details.thoughts_open .thought_items {
+    display: block;
+}
+
+.thoughts_details.thoughts_open .thought_summary_container::before {
+    transform: rotate(90deg);
+}
+
+.thought_summary_container::before {
+    display: flex;
+    content: '▶';
+    margin-right: 8px;
+}
+
+.thought_summary_container {
+    display: flex;
+    margin-left: 5px;
+    padding-bottom: 3px;
+}
+
+.thought_control_buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.thought_edit_cancel_button.menu_button {
+    background-color: var(--crimson70a);
+}
+
+.thought_edit_done_button.menu_button {
+    background-color: var(--okGreen70a);
+}
+
+.thought_control_buttons .menu_button {
+    opacity: 0.5;
+    aspect-ratio: 1 / 1;
+    height: 1.75rem;
+    margin: 0 0 0 2px;
+    padding: 0;
+}
+
+.thought_control_buttons .menu_button:hover {
+    opacity: 1;
+}
+
+.generated_thought_name {
+    font-weight: 600;
+    margin: 10px 0 0 5px;
+    padding: 5px 0 5px 10px;
+    /*background-color: var(--SmartThemeChatTintColor);*/
+    /*background-color: var(--SmartThemeBorderColor);*/
+    border-left: 3px solid var(--SmartThemeBorderColor);
+}
+
+.generated_thought {
+    margin: 0 0 5px 5px;
+    padding: 5px 10px 5px 10px;
+    background-color: var(--SmartThemeShadowColor);
+    border-left: 3px solid var(--SmartThemeBorderColor);
+}
+
+.generated_thought q:before,
+.generated_thought q:after {
+    content: '';
+}
+
+.thoughts i {
+    display: inline;
+}
+
+.intermediate_thoughts .thought_control_buttons,
+.unbound_thoughts .thought_control_buttons {
+    display: none;
+}
+
+.unbound_thoughts,
+body.bubblechat .unbound_thoughts {
+    background-color: rgba(255, 0, 0, 0.1);
+    background-blend-mode: multiply;
+}
+
+.stepthink_shutdown_turn_off {
+    background-color: rgba(255, 0, 0, 0.1);
+    background-blend-mode: multiply;
+}
+
+.stepthink_shutdown_turn_on {
+    background-color: rgba(0, 255, 0, 0.1);
+    background-blend-mode: multiply;
 }
