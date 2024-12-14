@@ -4,7 +4,7 @@ import { select2ChoiceClickSubscribe } from '../../../../utils.js';
 import { getCurrentCharacterSettings } from '../thinking/engine.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../../extensions.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
-import { switchToSeparatedThoughts } from '../thinking/strategy.js';
+import { switchToEmbeddedThoughts, switchToSeparatedThoughts } from '../thinking/strategy.js';
 
 export let settings;
 
@@ -45,7 +45,7 @@ export async function loadSettings() {
     loadThinkingPromptSettings();
     loadCharacterSettings();
 
-    switchToSeparatedThoughts();
+    switchToEmbeddedThoughts();
 }
 
 /**
@@ -54,7 +54,7 @@ export async function loadSettings() {
 function setDefaultsForUndefined(settings) {
     const defaults = defaultSettings();
 
-    for (let settingKey in defaults) {
+    for (const settingKey in defaults) {
         if (settings[settingKey] === undefined) {
             settings[settingKey] = defaults[settingKey];
         }
@@ -161,7 +161,7 @@ function registerCommonSettingListeners() {
 
 /**
  * @param {string} settingName
- * @param {object?} settingBase
+ * @param {?object} settingBase
  * @return {(function(): void)}
  */
 function onCheckboxInput(settingName, settingBase = null) {
@@ -503,7 +503,7 @@ function onLoadCharacters() {
 
 /**
  * @typedef {object} ThinkingPromptTuple
- * @property {string?} owner - the character that "owns" these prompts. Empty value means no owner (default prompts)
+ * @property {?string} owner - the character that "owns" these prompts. Empty value means no owner (default prompts)
  * @property {JQuery<HTMLDivElement>|ParentNode} prompts_element - the DOM element visualizing the prompt settings
  * @property {ThinkingPrompt[]} prompts_settings - the corresponding stored prompt settings
  */

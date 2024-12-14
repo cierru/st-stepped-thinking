@@ -10,8 +10,11 @@ import {
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import {
+    renderInitialThoughts,
+    renderThoughts,
     runChatThinking,
     runThinking,
+    saveThoughts,
     stopThinking,
 } from './thinking/engine.js';
 import {
@@ -40,6 +43,10 @@ const extensionFolder = `scripts/extensions/third-party/${extensionName}`;
 export function registerGenerationEventListeners() {
     eventSource.on(event_types.GENERATION_STOPPED, onGenerationStopped);
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onGenerationAfterCommands);
+
+    eventSource.on(event_types.MESSAGE_RECEIVED, onMessageReceived);
+    eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
+    $(document).on('mouseup touchend', '#show_more_messages', onShowMoreMessagesClicked);
 }
 
 /**
@@ -64,6 +71,27 @@ async function onGenerationAfterCommands(type) {
 }
 
 /**
+ * @return {Promise<void>}
+ */
+async function onChatChanged() {
+    await renderInitialThoughts();
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function onShowMoreMessagesClicked() {
+    await renderThoughts();
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function onMessageReceived() {
+    await saveThoughts('last', getContext().chat.length - 1);
+}
+
+/**
  * @returns {Promise<void>}
  */
 async function onGenerationStopped() {
@@ -74,7 +102,7 @@ async function onGenerationStopped() {
 
 /**
  * @param {object} input
- * @param {string?} name
+ * @param {?string} name
  * @return {Promise<string>}
  */
 async function runThinkingCommand(input, name = '') {
@@ -97,6 +125,7 @@ async function runThinkingCommand(input, name = '') {
     let targetPromptIds = input.prompt_ids ? input.prompt_ids.split(',') : null;
 
     try {
+        // TODO saveThoughts
         await runThinking($('#send_textarea'), targetPromptIds);
     } catch (error) {
         // For some reason, the characterId and characterName are reset after the first thinking prompt generation in the context
@@ -132,7 +161,7 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
 
 /**
  * @param {object} _
- * @param {string?} name
+ * @param {?string} name
  * @return {Promise<string>}
  */
 async function deleteHiddenThoughts(_, name = '') {

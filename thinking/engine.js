@@ -11,12 +11,23 @@ let isThinking = false;
 let toastThinking, sendTextareaOriginalPlaceholder;
 
 export const thinkingEvents = {
-    ON_HIDE_THOUGHTS: 'ON_HIDE_THOUGHTS',
-    ON_SEND_THOUGHTS_TEMPLATE: 'ON_SEND_THOUGHTS_TEMPLATE',
-    ON_PUT_THOUGHTS: 'ON_PUT_THOUGHTS',
+    ON_HIDE: 'ON_HIDE_THOUGHTS',
+    ON_SEND_TEMPLATE: 'ON_SEND_THOUGHTS_TEMPLATE',
+    ON_PUT: 'ON_PUT_THOUGHTS',
+    ON_SAVE: 'ON_SAVE_THOUGHTS',
+    ON_RENDER: 'ON_RENDER_THOUGHTS',
 };
 
+/**
+ * @typedef {object} ThoughtsCoordinates
+ * @property {?number} thoughtsMessageId
+ * @property {?string} thoughtsMetadataId
+ */
+
 class ThinkingEvent {
+    /**
+     * @type {boolean}
+     */
     #defaultPrevented = false;
 
     get defaultPrevented() {
@@ -29,10 +40,17 @@ class ThinkingEvent {
 }
 
 class OnSendThoughtsTemplateEvent extends ThinkingEvent {
-    #coordinates;
+    /**
+     * @type {ThoughtsCoordinates}
+     */
+    #coordinates = { thoughtsMessageId: null, thoughtsMetadataId: null };
 
-    set coordinates(coordinates) {
-        this.#coordinates = coordinates;
+    set thoughtsMessageId(id) {
+        this.#coordinates.thoughtsMessageId = id;
+    }
+
+    set thoughtsMetadataId(id) {
+        this.#coordinates.thoughtsMetadataId = id;
     }
 
     get coordinates() {
@@ -41,21 +59,72 @@ class OnSendThoughtsTemplateEvent extends ThinkingEvent {
 }
 
 class OnPutThoughtsEvent extends ThinkingEvent {
+    /**
+     * @type {ThoughtsCoordinates}
+     */
     #coordinates;
-    #thoughts;
+    /**
+     * @type {string}
+     */
+    #thought;
 
-    constructor(coordinates, thoughts) {
+    constructor(coordinates, thought) {
         super();
         this.#coordinates = coordinates;
-        this.#thoughts = thoughts;
+        this.#thought = thought;
     }
 
-    get coordinates() {
-        return this.#coordinates;
+    get thoughtsMessageId() {
+        return this.#coordinates.thoughtsMessageId;
     }
 
-    get thoughts() {
-        return this.#thoughts;
+    get thoughtsMetadataId() {
+        return this.#coordinates.thoughtsMetadataId;
+    }
+
+    get thought() {
+        return this.#thought;
+    }
+}
+
+class OnSaveThoughtsEvent extends ThinkingEvent {
+    /**
+     * @type {number|string}
+     */
+    #thoughtsMetadataId;
+    /**
+     * @type {number}
+     */
+    #messageId;
+
+    constructor(thoughtsMetadataId, messageId) {
+        super();
+        this.#thoughtsMetadataId = thoughtsMetadataId;
+        this.#messageId = messageId;
+    }
+
+    get thoughtsMetadataId() {
+        return this.#thoughtsMetadataId;
+    }
+
+    get messageId() {
+        return this.#messageId;
+    }
+}
+
+class OnRenderThoughtsEvent extends ThinkingEvent {
+    /**
+     * @type {boolean}
+     */
+    #isInitialCall;
+
+    constructor(isInitialCall) {
+        super();
+        this.#isInitialCall = isInitialCall;
+    }
+
+    get isInitialCall() {
+        return this.#isInitialCall;
     }
 }
 
@@ -103,6 +172,29 @@ export function stopThinking(textarea) {
 }
 
 /**
+ * @param {number|string} thoughtsMetadataId
+ * @param {number} messageId
+ * @return {Promise<void>}
+ */
+export async function saveThoughts(thoughtsMetadataId, messageId) {
+    await eventSource.emit(thinkingEvents.ON_SAVE, new OnSaveThoughtsEvent(thoughtsMetadataId, messageId));
+}
+
+/**
+ * @return {Promise<void>}
+ */
+export async function renderInitialThoughts() {
+    await eventSource.emit(thinkingEvents.ON_RENDER, new OnRenderThoughtsEvent(true));
+}
+
+/**
+ * @return {Promise<void>}
+ */
+export async function renderThoughts() {
+    await eventSource.emit(thinkingEvents.ON_RENDER, new OnRenderThoughtsEvent(false));
+}
+
+/**
  * @param {JQuery<HTMLTextAreaElement>} textarea
  * @return {Promise<void>}
  */
@@ -121,7 +213,7 @@ export async function runChatThinking(textarea) {
 
 /**
  * @param {JQuery<HTMLTextAreaElement>} textarea
- * @param {array?} targetPromptIds
+ * @param {?array} targetPromptIds
  * @return {Promise<void>}
  */
 export async function runThinking(textarea, targetPromptIds = null) {
@@ -164,7 +256,7 @@ async function sendUserMessage(textarea) {
  * want their input to be suddenly sent when the character finishes thinking, the input field is disabled during the process
  *
  * @param {JQuery<HTMLTextAreaElement>} textarea
- * @param {array?} targetPromptIds
+ * @param {?array} targetPromptIds
  * @return {Promise<void>}
  */
 async function generateThoughtsWithDisabledInput(textarea, targetPromptIds = null) {
@@ -181,7 +273,7 @@ async function generateThoughtsWithDisabledInput(textarea, targetPromptIds = nul
 }
 
 /**
- * @param {array?} targetPromptIds
+ * @param {?array} targetPromptIds
  * @return {Promise<void>}
  */
 async function generateThoughts(targetPromptIds = null) {
@@ -198,8 +290,8 @@ async function generateThoughts(targetPromptIds = null) {
     const prompts = getCurrentCharacterPrompts();
     for (let i = 0; i < prompts.length; i++) {
         if (prompts[i]?.prompt && isInTargetPrompts(prompts[i].id)) {
-            const thoughts = await generateCharacterThoughts(prompts[i].prompt);
-            await putCharactersThoughts(coordinates, thoughts);
+            const thought = await generateCharacterThought(prompts[i].prompt);
+            await putCharactersThoughts(coordinates, thought);
 
             if (prompts[i + 1]?.prompt) {
                 await generationDelay();
@@ -218,7 +310,7 @@ async function generateThoughts(targetPromptIds = null) {
  * @param {string} prompt
  * @return {Promise<string>}
  */
-async function generateCharacterThoughts(prompt) {
+async function generateCharacterThought(prompt) {
     const context = getContext();
 
     let result = await context.generateQuietPrompt(prompt, false, settings.is_wian_skipped, null, null, settings.max_response_length);
@@ -235,26 +327,26 @@ async function generateCharacterThoughts(prompt) {
  * @return {Promise<void>}
  */
 async function hideThoughts() {
-    await eventSource.emit(thinkingEvents.ON_HIDE_THOUGHTS, new ThinkingEvent());
+    await eventSource.emit(thinkingEvents.ON_HIDE, new ThinkingEvent());
 }
 
 /**
- * @return {Promise<number>}
+ * @return {Promise<ThoughtsCoordinates>}
  */
 async function sendCharacterTemplateMessage() {
     const event = new OnSendThoughtsTemplateEvent();
-    await eventSource.emit(thinkingEvents.ON_SEND_THOUGHTS_TEMPLATE, event);
+    await eventSource.emit(thinkingEvents.ON_SEND_TEMPLATE, event);
 
     return event.coordinates;
 }
 
 /**
- * @param {number} coordinates
- * @param {string} thoughts
+ * @param {ThoughtsCoordinates} coordinates
+ * @param {string} thought
  * @return {Promise<void>}
  */
-async function putCharactersThoughts(coordinates, thoughts) {
-    await eventSource.emit(thinkingEvents.ON_PUT_THOUGHTS, new OnPutThoughtsEvent(coordinates, thoughts));
+async function putCharactersThoughts(coordinates, thought) {
+    await eventSource.emit(thinkingEvents.ON_PUT, new OnPutThoughtsEvent(coordinates, thought));
 }
 
 /**

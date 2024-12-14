@@ -7,3 +7,19 @@
 [id*=stepthink_prompt_item--]{
     flex-flow: inherit;
 }
+
+.thoughts {
+    display: flex;
+    align-items: flex-start;
+    padding: 10px 10px 0 10px;
+    margin-top: 0;
+    width: 100%;
+    color: var(--SmartThemeBodyColor);
+    position: relative;
+
+    /*padding: 10px;*/
+    border-radius: 10px;
+    background-color: var(--SmartThemeBlurTintColor);
+    margin-bottom: 5px;
+    border: 1px solid var(--SmartThemeBorderColor);
+}
