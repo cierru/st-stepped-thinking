@@ -17,6 +17,7 @@ export const thinkingEvents = {
     ON_SAVE: 'ON_SAVE_THOUGHTS',
     ON_RENDER: 'ON_RENDER_THOUGHTS',
     ON_UNBIND_ORPHANS: 'ON_UNBIND_ORPHAN_THOUGHTS',
+    ON_PREPARE_GENERATION: 'ON_PREPARE_GENERATION_THOUGHTS',
 };
 
 /**
@@ -316,7 +317,15 @@ async function generateThoughts(targetPromptIds = null) {
 async function generateCharacterThought(prompt) {
     const context = getContext();
 
-    let result = await context.generateQuietPrompt(prompt, false, settings.is_wian_skipped, null, null, settings.max_response_length);
+    await prepareGenerationPrompt();
+    let result = await context.generateQuietPrompt(
+        prompt,
+        false,
+        settings.is_wian_skipped,
+        null,
+        null,
+        settings.max_response_length
+    );
 
     if (settings.regexp_to_sanitize.trim() !== '') {
         const regexp = context.substituteParams(settings.regexp_to_sanitize);
@@ -341,6 +350,13 @@ async function sendCharacterTemplateMessage() {
     await eventSource.emit(thinkingEvents.ON_SEND_TEMPLATE, event);
 
     return event.coordinates;
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function prepareGenerationPrompt() {
+    await eventSource.emit(thinkingEvents.ON_PREPARE_GENERATION, new ThinkingEvent());
 }
 
 /**

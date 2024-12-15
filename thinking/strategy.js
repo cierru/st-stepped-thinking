@@ -24,6 +24,7 @@ import { uuidv4 } from '../../../../utils.js';
  * @property {function(OnSaveThoughtsEvent): Promise<void>} saveCharacterThoughts
  * @property {function(OnRenderThoughtsEvent): Promise<void>} renderCharacterThoughts
  * @property {function(): void} unbindOrphanThoughts
+ * @property {function(): Promise<void>} prepareGenerationPrompt
  */
 /**
  * @type {ThoughtsStrategy}
@@ -62,6 +63,10 @@ export function registerThinkingListeners() {
     eventSource.on(
         thinkingEvents.ON_UNBIND_ORPHANS,
         preventDefaultDecorator(async () => currentStrategy.unbindOrphanThoughts()),
+    );
+    eventSource.on(
+        thinkingEvents.ON_PREPARE_GENERATION,
+        preventDefaultDecorator(async () => currentStrategy.prepareGenerationPrompt()),
     );
 }
 
@@ -188,6 +193,13 @@ class SeparatedThoughtsStrategy {
     }
 
     /**
+     * @return {Promise<void>}
+     */
+    async prepareGenerationPrompt() {
+        // The prompt is automatically prepared based on the chat history in this strategy
+    }
+
+    /**
      * @param {OnSaveThoughtsEvent} event
      * @return {Promise<void>}
      */
@@ -289,6 +301,7 @@ class SeparatedThoughtsStrategy {
 /**
  * @typedef {object} ThoughtsGeneration
  * @property {string} header
+ * @property {boolean} is_hidden
  * @property {array<{
  *     id: number,
  *     thought: string,
@@ -317,6 +330,25 @@ class EmbeddedThoughtsStrategy {
      * @return {Promise<void>}
      */
     async hideThoughts() {
+        const context = getContext();
+
+        const currentCharacter = context.characters[context.characterId];
+        const characterSettings = getCurrentCharacterSettings();
+
+        const isMindReaderCharacter = Boolean(characterSettings && characterSettings.is_mind_reader);
+
+        const lastMessageIndex = context.chat.length - 1;
+        for (let i = lastMessageIndex, revealedThoughtsCount = []; i >= 0 && (lastMessageIndex - i < settings.max_hiding_thoughts_lookup); i--) {
+            const message = context.chat[i];
+
+            revealedThoughtsCount[message.name] ??= 0;
+            revealedThoughtsCount[message.name] += this.#revealThought(
+                context.chat[i],
+                revealedThoughtsCount[message.name],
+                currentCharacter.name,
+                isMindReaderCharacter
+            );
+        }
     }
 
     /**
@@ -328,7 +360,7 @@ class EmbeddedThoughtsStrategy {
         const thoughtsMetadataId = this.LAST_BLOCK_ID;
 
         /** @type {ThoughtsGeneration} */
-        context.chatMetadata.thought_generation = { header: '<h4>Thinking...<h4/>', thoughts: [] };
+        context.chatMetadata.thought_generation = { header: '<h4>Thinking...<h4/>', is_hidden: false, thoughts: [] };
 
         const lastMessage = document.querySelector(`#chat .mes[mesid="${context.chat.length - 1}"]`);
 
@@ -344,6 +376,12 @@ class EmbeddedThoughtsStrategy {
         event.thoughtsMetadataId = thoughtsMetadataId;
 
         scrollChatToBottom();
+    }
+
+    /**
+     * @return {Promise<void>}
+     */
+    async prepareGenerationPrompt() {
     }
 
     /**
@@ -415,12 +453,35 @@ class EmbeddedThoughtsStrategy {
      * @return {Promise<void>}
      */
     async renderCharacterThoughts(event) {
-        this.#removeUnboundThoughtBlocks();
+        if (!event.isInitialCall) {
+            this.#removeUnboundThoughtBlocks();
+        }
+
         this.#renderThoughtBlocks();
 
         if (event.isInitialCall) {
             scrollChatToBottom();
         }
+    }
+
+    #revealThought(message, revealedCharThoughtsCount, currentCharacterName, isMindReaderCharacter) {
+        const characterThoughts = message.character_thoughts;
+        if (!characterThoughts) {
+            return 0;
+        }
+
+        const previousHidingState = characterThoughts.is_hidden;
+        characterThoughts.is_hidden = revealedCharThoughtsCount >= settings.max_thoughts_in_prompt
+            || (!isMindReaderCharacter && currentCharacterName !== message.name);
+
+        if (previousHidingState !== characterThoughts.is_hidden) {
+            const thoughtsBlock = this.#findThoughtsBlock(message.thoughts_id);
+            if (thoughtsBlock) {
+                this.#renderHidingState(thoughtsBlock, characterThoughts.is_hidden);
+            }
+        }
+
+        return characterThoughts.is_hidden ? 0 : 1;
     }
 
     /**
@@ -459,6 +520,7 @@ class EmbeddedThoughtsStrategy {
                 message.thoughts_id,
                 message.character_thoughts.header,
             );
+            this.#renderHidingState(thoughtsBlock, message.character_thoughts.is_hidden);
             for (const thought of message.character_thoughts.thoughts) {
                 thoughtsBlock.innerHTML += thought.thought;
             }
@@ -481,9 +543,7 @@ class EmbeddedThoughtsStrategy {
         }
 
         const boundThoughtsBlock = this.#findThoughtsBlock(messageThoughtsId);
-        if (this.#findClosestSibling(messageBlock, 'thoughts', 'up') !== boundThoughtsBlock) {
-            messageBlock.before(boundThoughtsBlock);
-        }
+        messageBlock.before(boundThoughtsBlock);
     }
 
     /**
@@ -529,6 +589,14 @@ class EmbeddedThoughtsStrategy {
     #attachMessageToThoughts(messageBlock, thoughtsId) {
         messageBlock.setAttribute('thoughts_rendered', 'true');
         messageBlock.setAttribute('thoughts_id', thoughtsId);
+    }
+
+    #renderHidingState(thoughtsBlock, isHidden) {
+        if (isHidden) {
+            thoughtsBlock.innerHTML = '<i class="mes_ghost fa-solid fa-ghost"></i>' + thoughtsBlock.innerHTML;
+        } else {
+            thoughtsBlock.innerHTML = thoughtsBlock.innerHTML.replace('<i class="mes_ghost fa-solid fa-ghost"></i>', '');
+        }
     }
 
     /**
