@@ -45,6 +45,7 @@ export function registerGenerationEventListeners() {
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onGenerationAfterCommands);
 
     eventSource.on(event_types.MESSAGE_RECEIVED, onMessageReceived);
+    eventSource.on(event_types.MESSAGE_DELETED, onMessageDeleted);
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
     $(document).on('mouseup touchend', '#show_more_messages', onShowMoreMessagesClicked);
 }
@@ -92,10 +93,17 @@ async function onMessageReceived() {
 }
 
 /**
+ * @return {Promise<void>}
+ */
+async function onMessageDeleted() {
+    await renderThoughts();
+}
+
+/**
  * @returns {Promise<void>}
  */
 async function onGenerationStopped() {
-    stopThinking($('#send_textarea'));
+    await stopThinking($('#send_textarea'));
 }
 
 // slash-commands

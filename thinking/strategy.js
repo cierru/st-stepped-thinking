@@ -23,6 +23,7 @@ import { uuidv4 } from '../../../../utils.js';
  * @property {function(OnPutThoughtsEvent): Promise<void>} putCharacterThoughts
  * @property {function(OnSaveThoughtsEvent): Promise<void>} saveCharacterThoughts
  * @property {function(OnRenderThoughtsEvent): Promise<void>} renderCharacterThoughts
+ * @property {function(): void} unbindOrphanThoughts
  */
 /**
  * @type {ThoughtsStrategy}
@@ -57,6 +58,10 @@ export function registerThinkingListeners() {
     eventSource.on(
         thinkingEvents.ON_RENDER,
         preventDefaultDecorator(async (event) => currentStrategy.renderCharacterThoughts(event)),
+    );
+    eventSource.on(
+        thinkingEvents.ON_UNBIND_ORPHANS,
+        preventDefaultDecorator(async () => currentStrategy.unbindOrphanThoughts()),
     );
 }
 
@@ -199,6 +204,13 @@ class SeparatedThoughtsStrategy {
     }
 
     /**
+     * @return {void}
+     */
+    unbindOrphanThoughts() {
+        // Unbinding orphan thoughts is unnecessary in this strategy
+    }
+
+    /**
      * @param {v1CharData} character
      * @param {string} text
      * @return {Promise<number>}
@@ -286,6 +298,8 @@ class SeparatedThoughtsStrategy {
  * @implements {ThoughtsStrategy}
  */
 class EmbeddedThoughtsStrategy {
+    LAST_BLOCK_ID = 'last';
+
     /**
      * @var {EmbeddedThoughtsStrategy}
      */
@@ -311,19 +325,20 @@ class EmbeddedThoughtsStrategy {
      */
     async sendCharacterTemplateMessage(event) {
         const context = getContext();
-        const thoughtsMetadataId = 'last';
+        const thoughtsMetadataId = this.LAST_BLOCK_ID;
 
         /** @type {ThoughtsGeneration} */
         context.chatMetadata.thought_generation = { header: '<h4>Thinking...<h4/>', thoughts: [] };
 
-        const lastMessage = $(`#chat .mes[mesid="${context.chat.length - 1}"]`);
+        const lastMessage = document.querySelector(`#chat .mes[mesid="${context.chat.length - 1}"]`);
 
+        document.querySelector('.unbound_thoughts')?.remove();
         const thoughtsTemplate = this.#createThoughtsBlock(
             thoughtsMetadataId,
             context.chatMetadata.thought_generation.header
         );
 
-        lastMessage.removeClass('last_mes');
+        lastMessage.classList.remove('last_mes');
         lastMessage.after(thoughtsTemplate);
 
         event.thoughtsMetadataId = thoughtsMetadataId;
@@ -377,24 +392,59 @@ class EmbeddedThoughtsStrategy {
     }
 
     /**
+     * @return {void}
+     */
+    unbindOrphanThoughts() {
+        const lastThoughtsBlock = this.#findThoughtsBlock(this.LAST_BLOCK_ID);
+        if (!lastThoughtsBlock) {
+            return;
+        }
+
+        const siblingElement = this.#findClosestSibling(lastThoughtsBlock, 'mes', 'down');
+        if (siblingElement
+            && siblingElement.classList.contains('mes')
+            && siblingElement.getAttribute('thoughts_rendered') !== 'true') {
+            return;
+        }
+
+        lastThoughtsBlock.classList.add('unbound_thoughts');
+    }
+
+    /**
      * @param {OnRenderThoughtsEvent} event
      * @return {Promise<void>}
      */
     async renderCharacterThoughts(event) {
-        const context = getContext();
+        this.#removeUnboundThoughtBlocks();
+        this.#renderThoughtBlocks();
 
-        // Crutch for fixing detached thoughts block after clicking the "show more messages" button
-        if (!event.isInitialCall) {
-            const firstThoughtsBlock = $('#chat .thoughts').first();
-            if (!firstThoughtsBlock.prev().hasClass('mes')) {
-                const misplacedThoughtId = firstThoughtsBlock.attr('thoughts_id');
-                const properMessage = $(`#chat .mes[thoughts_id="${misplacedThoughtId}"]`);
-                properMessage.before(firstThoughtsBlock);
-            }
+        if (event.isInitialCall) {
+            scrollChatToBottom();
         }
+    }
+
+    /**
+     * @return {void}
+     */
+    #removeUnboundThoughtBlocks() {
+        $('#chat .thoughts').each((id, thoughtsBlock) => {
+            const thoughtsId = thoughtsBlock.getAttribute('thoughts_id');
+            const boundMessageBlock = document.querySelector(`#chat .mes[thoughts_id="${thoughtsId}"]`);
+            if (!boundMessageBlock) {
+                thoughtsBlock.remove();
+            }
+        });
+    }
+
+    /**
+     * @return {void}
+     */
+    #renderThoughtBlocks() {
+        const context = getContext();
 
         $('#chat .mes').each((id, messageBlock) => {
             if (messageBlock.getAttribute('thoughts_rendered') === 'true') {
+                this.#reattachDetachedThoughtBlocks(messageBlock);
                 return;
             }
 
@@ -407,7 +457,7 @@ class EmbeddedThoughtsStrategy {
 
             const thoughtsBlock = this.#createThoughtsBlock(
                 message.thoughts_id,
-                message.character_thoughts.header
+                message.character_thoughts.header,
             );
             for (const thought of message.character_thoughts.thoughts) {
                 thoughtsBlock.innerHTML += thought.thought;
@@ -416,9 +466,23 @@ class EmbeddedThoughtsStrategy {
             messageBlock.before(thoughtsBlock);
             this.#attachMessageToThoughts(messageBlock, message.thoughts_id);
         });
+    }
 
-        if (event.isInitialCall) {
-            scrollChatToBottom();
+    /**
+     * This is a crutch required to fix detached thought blocks problem after clicking the "Show more messages" button
+     *
+     * @param {HTMLDivElement} messageBlock
+     * @return {void}
+     */
+    #reattachDetachedThoughtBlocks(messageBlock) {
+        const messageThoughtsId = messageBlock.getAttribute('thoughts_id');
+        if (!messageThoughtsId) {
+            return;
+        }
+
+        const boundThoughtsBlock = this.#findThoughtsBlock(messageThoughtsId);
+        if (this.#findClosestSibling(messageBlock, 'thoughts', 'up') !== boundThoughtsBlock) {
+            messageBlock.before(boundThoughtsBlock);
         }
     }
 
@@ -429,9 +493,7 @@ class EmbeddedThoughtsStrategy {
      */
     #createThoughtsBlock(id, content = null) {
         const thoughtsBlock = document.createElement('div');
-
-        thoughtsBlock.setAttribute('id', `thoughts_mes--${id}`);
-        thoughtsBlock.setAttribute('thoughts_id', id);
+        this.#updateThoughtBlockId(thoughtsBlock, id);
 
         thoughtsBlock.classList.add('thoughts');
         if (content !== null) {
@@ -467,5 +529,31 @@ class EmbeddedThoughtsStrategy {
     #attachMessageToThoughts(messageBlock, thoughtsId) {
         messageBlock.setAttribute('thoughts_rendered', 'true');
         messageBlock.setAttribute('thoughts_id', thoughtsId);
+    }
+
+    /**
+     * @param {HTMLDivElement} startElement
+     * @param {string} targetClass
+     * @param {string} direction
+     * @return {HTMLDivElement|null}
+     */
+    #findClosestSibling(startElement, targetClass, direction) {
+        const findSibling = (element, getNextSibling) => {
+            let sibling = getNextSibling(element);
+            while (sibling) {
+                if (sibling.classList.contains(targetClass)) {
+                    return sibling;
+                }
+                sibling = getNextSibling(sibling);
+            }
+
+            return null;
+        };
+
+        if (direction === 'up') {
+            return findSibling(startElement, element => element.previousElementSibling);
+        }
+
+        return findSibling(startElement, element => element.nextElementSibling);
     }
 }

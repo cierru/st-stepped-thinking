@@ -20,6 +20,11 @@
     /*padding: 10px;*/
     border-radius: 10px;
     background-color: var(--SmartThemeBlurTintColor);
-    margin-bottom: 5px;
+    margin-bottom: 0;
     border: 1px solid var(--SmartThemeBorderColor);
+}
+
+.unbound_thoughts {
+    background-color: rgba(255, 0, 0, 0.1);
+    background-blend-mode: multiply;
 }

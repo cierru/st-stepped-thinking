@@ -16,6 +16,7 @@ export const thinkingEvents = {
     ON_PUT: 'ON_PUT_THOUGHTS',
     ON_SAVE: 'ON_SAVE_THOUGHTS',
     ON_RENDER: 'ON_RENDER_THOUGHTS',
+    ON_UNBIND_ORPHANS: 'ON_UNBIND_ORPHAN_THOUGHTS',
 };
 
 /**
@@ -156,7 +157,7 @@ export async function generationDelay() {
  * @param {JQuery<HTMLTextAreaElement>} textarea
  * @return {void}
  */
-export function stopThinking(textarea) {
+export async function stopThinking(textarea) {
     isThinking = false;
     if (toastThinking) {
         toastr.clear(toastThinking);
@@ -167,6 +168,8 @@ export function stopThinking(textarea) {
     if (sendTextareaOriginalPlaceholder) {
         textarea.attr('placeholder', sendTextareaOriginalPlaceholder);
     }
+
+    await unbindOrphanThoughts();
 
     releaseGeneration();
 }
@@ -347,6 +350,13 @@ async function sendCharacterTemplateMessage() {
  */
 async function putCharactersThoughts(coordinates, thought) {
     await eventSource.emit(thinkingEvents.ON_PUT, new OnPutThoughtsEvent(coordinates, thought));
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function unbindOrphanThoughts() {
+    await eventSource.emit(thinkingEvents.ON_UNBIND_ORPHANS, new ThinkingEvent());
 }
 
 /**
