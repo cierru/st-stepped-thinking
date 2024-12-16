@@ -1,7 +1,5 @@
 import { getContext } from '../../../extensions.js';
 import {
-    event_types,
-    eventSource,
     reloadCurrentChat,
     saveChatConditional,
     setCharacterId,
@@ -9,21 +7,13 @@ import {
 } from '../../../../script.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
-import {
-    renderInitialThoughts,
-    renderThoughts,
-    runChatThinking,
-    runThinking,
-    saveThoughts,
-    stopThinking,
-} from './thinking/engine.js';
+import { registerGenerationEventListeners, runThinking } from './thinking/engine.js';
 import {
     ARGUMENT_TYPE,
     SlashCommandArgument,
     SlashCommandNamedArgument,
 } from '../../../slash-commands/SlashCommandArgument.js';
 import { commonEnumProviders } from '../../../slash-commands/SlashCommandCommonEnumsProvider.js';
-import { is_group_generating } from '../../../group-chats.js';
 import { registerGenerationMutexListeners } from './interconnection.js';
 import {
     loadSettings,
@@ -34,77 +24,6 @@ import { registerThinkingListeners } from './thinking/strategy.js';
 
 export const extensionName = 'st-stepped-thinking';
 const extensionFolder = `scripts/extensions/third-party/${extensionName}`;
-
-// generation
-
-/**
- * @return {void}
- */
-export function registerGenerationEventListeners() {
-    eventSource.on(event_types.GENERATION_STOPPED, onGenerationStopped);
-    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onGenerationAfterCommands);
-
-    eventSource.on(event_types.MESSAGE_RECEIVED, onMessageReceived);
-    eventSource.on(event_types.MESSAGE_DELETED, onMessageDeleted);
-    eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
-    $(document).on('mouseup touchend', '#show_more_messages', onShowMoreMessagesClicked);
-}
-
-/**
- * @param {string} type
- * @returns {Promise<void>}
- */
-async function onGenerationAfterCommands(type) {
-    if (getContext().groupId) {
-        if (!is_group_generating) {
-            return;
-        }
-        if (type !== 'normal' && type !== 'group_chat') {
-            return;
-        }
-    } else {
-        if (type) {
-            return;
-        }
-    }
-
-    await runChatThinking($('#send_textarea'));
-}
-
-/**
- * @return {Promise<void>}
- */
-async function onChatChanged() {
-    await renderInitialThoughts();
-}
-
-/**
- * @return {Promise<void>}
- */
-async function onShowMoreMessagesClicked() {
-    await renderThoughts();
-}
-
-/**
- * @return {Promise<void>}
- */
-async function onMessageReceived() {
-    await saveThoughts('last', getContext().chat.length - 1);
-}
-
-/**
- * @return {Promise<void>}
- */
-async function onMessageDeleted() {
-    await renderThoughts();
-}
-
-/**
- * @returns {Promise<void>}
- */
-async function onGenerationStopped() {
-    await stopThinking($('#send_textarea'));
-}
 
 // slash-commands
 

@@ -2,10 +2,12 @@ import {
     addOneMessage,
     event_types,
     eventSource,
+    extension_prompts,
     extractMessageBias,
     removeMacros,
     saveChatConditional,
     scrollChatToBottom,
+    setExtensionPrompt,
     updateMessageBlock,
 } from '../../../../../script.js';
 import { getCurrentCharacterSettings, thinkingEvents } from './engine.js';
@@ -23,13 +25,16 @@ import { uuidv4 } from '../../../../utils.js';
  * @property {function(OnPutThoughtsEvent): Promise<void>} putCharacterThoughts
  * @property {function(OnSaveThoughtsEvent): Promise<void>} saveCharacterThoughts
  * @property {function(OnRenderThoughtsEvent): Promise<void>} renderCharacterThoughts
- * @property {function(): void} unbindOrphanThoughts
+ * @property {function(): void} makeIntermediateThoughtsOrphans
+ * @property {function(): void} removeOrphanThoughts
  * @property {function(): Promise<void>} prepareGenerationPrompt
  */
 /**
  * @type {ThoughtsStrategy}
  */
 let currentStrategy;
+
+export const LAST_THOUGHT_ID = 'last';
 
 export function switchToSeparatedThoughts() {
     currentStrategy = SeparatedThoughtsStrategy.getInstance();
@@ -61,8 +66,12 @@ export function registerThinkingListeners() {
         preventDefaultDecorator(async (event) => currentStrategy.renderCharacterThoughts(event)),
     );
     eventSource.on(
-        thinkingEvents.ON_UNBIND_ORPHANS,
-        preventDefaultDecorator(async () => currentStrategy.unbindOrphanThoughts()),
+        thinkingEvents.ON_MAKE_ORPHANS,
+        preventDefaultDecorator(async () => currentStrategy.makeIntermediateThoughtsOrphans()),
+    );
+    eventSource.on(
+        thinkingEvents.ON_REMOVE_ORPHANS,
+        preventDefaultDecorator(async () => currentStrategy.removeOrphanThoughts()),
     );
     eventSource.on(
         thinkingEvents.ON_PREPARE_GENERATION,
@@ -218,8 +227,15 @@ class SeparatedThoughtsStrategy {
     /**
      * @return {void}
      */
-    unbindOrphanThoughts() {
-        // Unbinding orphan thoughts is unnecessary in this strategy
+    makeIntermediateThoughtsOrphans() {
+        // Cleaning the intermediate state is unnecessary in this strategy
+    }
+
+    /**
+     * @return {void}
+     */
+    removeOrphanThoughts() {
+        // No need to remove orphans in this strategy as they are not created
     }
 
     /**
@@ -299,31 +315,165 @@ class SeparatedThoughtsStrategy {
 }
 
 /**
+ * @typedef {object} Thought
+ * @property {number} id
+ * @property {string} thought
+ */
+/**
  * @typedef {object} ThoughtsGeneration
  * @property {string} header
  * @property {boolean} is_hidden
- * @property {array<{
- *     id: number,
- *     thought: string,
- * }>} thoughts
+ * @property {array<Thought>} thoughts
  */
 /**
  * @implements {ThoughtsStrategy}
  */
 class EmbeddedThoughtsStrategy {
-    LAST_BLOCK_ID = 'last';
+    LAST_THOUGHT_ID = LAST_THOUGHT_ID;
+    EXTENSION_PROMPT_PREFIX = 'STEPTHINK_THOUGHT_';
 
     /**
      * @var {EmbeddedThoughtsStrategy}
      */
     static #instance;
 
+    /**
+     * @var {EmbeddedThoughtsUI}
+     */
+    #ui;
+
     static getInstance() {
         if (!EmbeddedThoughtsStrategy.#instance) {
-            EmbeddedThoughtsStrategy.#instance = new EmbeddedThoughtsStrategy();
+            EmbeddedThoughtsStrategy.#instance = new EmbeddedThoughtsStrategy(
+                EmbeddedThoughtsUI.getInstance()
+            );
         }
 
         return EmbeddedThoughtsStrategy.#instance;
+    }
+
+    constructor(ui) {
+        this.#ui = ui;
+    }
+
+    /**
+     * @param {OnSendThoughtsTemplateEvent} event
+     * @return {Promise<void>}
+     */
+    async sendCharacterTemplateMessage(event) {
+        const context = getContext();
+        const thoughtsMetadataId = this.LAST_THOUGHT_ID;
+
+        /** @type {ThoughtsGeneration} */
+        context.chatMetadata.thought_generation = { header: '<h4>Thinking...<h4/>', is_hidden: false, thoughts: [] };
+
+        this.#ui.purgeUnboundThoughts();
+        this.#ui.insertThoughtsTemplateBlock(
+            context.chat.length - 1,
+            thoughtsMetadataId,
+            context.chatMetadata.thought_generation.header
+        );
+
+        event.thoughtsMetadataId = thoughtsMetadataId;
+
+        scrollChatToBottom();
+    }
+
+    /**
+     * @return {Promise<void>}
+     */
+    async prepareGenerationPrompt() {
+        const context = getContext();
+        this.#purgeInjectedThoughts();
+
+        const lastMessageId = context.chat.length - 1;
+        for (let i = lastMessageId; i >= 0; i--) {
+            const message = context.chat[i];
+            if (message.character_thoughts && !message.character_thoughts.is_hidden) {
+                this.#injectThoughts(message.character_thoughts.thoughts, message.thoughts_id, lastMessageId - i + 1);
+            }
+        }
+
+        const lastThoughts = context.chatMetadata.thought_generation?.thoughts;
+        if (lastThoughts) {
+            this.#injectThoughts(lastThoughts, this.LAST_THOUGHT_ID, 0);
+        }
+    }
+
+    /**
+     * @param {OnPutThoughtsEvent} event
+     * @return {Promise<void>}
+     */
+    async putCharacterThoughts(event) {
+        const context = getContext();
+        const thoughtGeneration = context.chatMetadata.thought_generation;
+
+        const newThoughtsLength = thoughtGeneration.thoughts.push(
+            {
+                id: thoughtGeneration.thoughts.length,
+                thought: `<p>${event.thought}<p/>`,
+            },
+        );
+
+        this.#ui.addThoughtToBlock(event.thoughtsMetadataId, thoughtGeneration.thoughts[newThoughtsLength - 1].thought);
+
+        scrollChatToBottom();
+    }
+
+    /**
+     * @param {OnSaveThoughtsEvent} event
+     * @return {Promise<void>}
+     */
+    async saveCharacterThoughts(event) {
+        const context = getContext();
+        const generatedThoughts = context.chatMetadata.thought_generation;
+        if (!generatedThoughts) {
+            return;
+        }
+
+        const message = context.chat[event.messageId];
+
+        message.thoughts_id = uuidv4();
+        message.character_thoughts = generatedThoughts;
+        this.#ui.bindThoughtsBlock(event.messageId, message.thoughts_id, event.thoughtsMetadataId);
+
+        context.chatMetadata.thought_generation = null;
+
+        await saveChatConditional();
+    }
+
+    /**
+     * @return {void}
+     */
+    makeIntermediateThoughtsOrphans() {
+        const context = getContext();
+
+        context.chatMetadata.thought_generation = null;
+        this.#ui.unbindOrphanThoughtsBlock(this.LAST_THOUGHT_ID);
+    }
+
+
+    /**
+     * @return {void}
+     */
+    removeOrphanThoughts() {
+        this.#ui.purgeUnboundThoughts();
+    }
+
+    /**
+     * @param {OnRenderThoughtsEvent} event
+     * @return {Promise<void>}
+     */
+    async renderCharacterThoughts(event) {
+        if (!event.isInitialCall) {
+            this.#ui.removeUnboundThoughtBlocks();
+        }
+
+        this.#ui.renderThoughtBlocks();
+
+        if (event.isInitialCall) {
+            scrollChatToBottom();
+        }
     }
 
     /**
@@ -352,118 +502,38 @@ class EmbeddedThoughtsStrategy {
     }
 
     /**
-     * @param {OnSendThoughtsTemplateEvent} event
-     * @return {Promise<void>}
+     * @param {array<Thought>} thoughts
+     * @param {string} thoughtsId
+     * @param {number} depth
+     * @return {void}
      */
-    async sendCharacterTemplateMessage(event) {
-        const context = getContext();
-        const thoughtsMetadataId = this.LAST_BLOCK_ID;
-
-        /** @type {ThoughtsGeneration} */
-        context.chatMetadata.thought_generation = { header: '<h4>Thinking...<h4/>', is_hidden: false, thoughts: [] };
-
-        const lastMessage = document.querySelector(`#chat .mes[mesid="${context.chat.length - 1}"]`);
-
-        document.querySelector('.unbound_thoughts')?.remove();
-        const thoughtsTemplate = this.#createThoughtsBlock(
-            thoughtsMetadataId,
-            context.chatMetadata.thought_generation.header
+    #injectThoughts(thoughts, thoughtsId, depth) {
+        const thoughtsPrompt = thoughts.reduce(
+            (result, currentThought) => result + '|' + currentThought.thought,
+            ''
         );
 
-        lastMessage.classList.remove('last_mes');
-        lastMessage.after(thoughtsTemplate);
-
-        event.thoughtsMetadataId = thoughtsMetadataId;
-
-        scrollChatToBottom();
-    }
-
-    /**
-     * @return {Promise<void>}
-     */
-    async prepareGenerationPrompt() {
-    }
-
-    /**
-     * @param {OnPutThoughtsEvent} event
-     * @return {Promise<void>}
-     */
-    async putCharacterThoughts(event) {
-        const context = getContext();
-        const thoughtGeneration = context.chatMetadata.thought_generation;
-
-        const newThoughtsLength = thoughtGeneration.thoughts.push(
-            {
-                id: thoughtGeneration.thoughts.length,
-                thought: `<p>${event.thought}<p/>`,
-            },
-        );
-
-        const thoughtsTemplate = this.#findThoughtsBlock(event.thoughtsMetadataId);
-        thoughtsTemplate.innerHTML += thoughtGeneration.thoughts[newThoughtsLength - 1].thought;
-
-        scrollChatToBottom();
-    }
-
-    /**
-     * @param {OnSaveThoughtsEvent} event
-     * @return {Promise<void>}
-     */
-    async saveCharacterThoughts(event) {
-        const context = getContext();
-        const generatedThoughts = context.chatMetadata.thought_generation;
-
-        const message = context.chat[event.messageId];
-
-        message.thoughts_id = uuidv4();
-        message.character_thoughts = generatedThoughts;
-
-        const thoughtsBlock = this.#findThoughtsBlock(event.thoughtsMetadataId);
-        this.#updateThoughtBlockId(thoughtsBlock, message.thoughts_id);
-
-        const messageBlock = document.querySelector(`#chat .mes[mesid="${event.messageId}"]`);
-        this.#attachMessageToThoughts(messageBlock, message.thoughts_id);
-
-        context.chatMetadata.thought_generation = null;
-
-        await saveChatConditional();
+        setExtensionPrompt(`${this.EXTENSION_PROMPT_PREFIX}_${thoughtsId}`, thoughtsPrompt, 1, depth, true);
     }
 
     /**
      * @return {void}
      */
-    unbindOrphanThoughts() {
-        const lastThoughtsBlock = this.#findThoughtsBlock(this.LAST_BLOCK_ID);
-        if (!lastThoughtsBlock) {
-            return;
+    #purgeInjectedThoughts() {
+        for (const key of Object.keys(extension_prompts)) {
+            if (key.startsWith(this.EXTENSION_PROMPT_PREFIX)) {
+                delete extension_prompts[key];
+            }
         }
-
-        const siblingElement = this.#findClosestSibling(lastThoughtsBlock, 'mes', 'down');
-        if (siblingElement
-            && siblingElement.classList.contains('mes')
-            && siblingElement.getAttribute('thoughts_rendered') !== 'true') {
-            return;
-        }
-
-        lastThoughtsBlock.classList.add('unbound_thoughts');
     }
 
     /**
-     * @param {OnRenderThoughtsEvent} event
-     * @return {Promise<void>}
+     * @param {object} message
+     * @param {number} revealedCharThoughtsCount
+     * @param {string} currentCharacterName
+     * @param {boolean} isMindReaderCharacter
+     * @return {number}
      */
-    async renderCharacterThoughts(event) {
-        if (!event.isInitialCall) {
-            this.#removeUnboundThoughtBlocks();
-        }
-
-        this.#renderThoughtBlocks();
-
-        if (event.isInitialCall) {
-            scrollChatToBottom();
-        }
-    }
-
     #revealThought(message, revealedCharThoughtsCount, currentCharacterName, isMindReaderCharacter) {
         const characterThoughts = message.character_thoughts;
         if (!characterThoughts) {
@@ -475,20 +545,81 @@ class EmbeddedThoughtsStrategy {
             || (!isMindReaderCharacter && currentCharacterName !== message.name);
 
         if (previousHidingState !== characterThoughts.is_hidden) {
-            const thoughtsBlock = this.#findThoughtsBlock(message.thoughts_id);
-            if (thoughtsBlock) {
-                this.#renderHidingState(thoughtsBlock, characterThoughts.is_hidden);
-            }
+            this.#ui.findThoughtAndRenderHidingState(message.thoughts_id, characterThoughts.is_hidden);
         }
 
         return characterThoughts.is_hidden ? 0 : 1;
+    }
+}
+
+class EmbeddedThoughtsUI {
+    /**
+     * @var {EmbeddedThoughtsUI}
+     */
+    static #instance;
+
+    static getInstance() {
+        if (!EmbeddedThoughtsUI.#instance) {
+            EmbeddedThoughtsUI.#instance = new EmbeddedThoughtsUI();
+        }
+
+        return EmbeddedThoughtsUI.#instance;
+    }
+
+    /**
+     * @param {number} previousMessageId
+     * @param {string} thoughtsId
+     * @param {string} header
+     * @return {void}
+     */
+    insertThoughtsTemplateBlock(previousMessageId, thoughtsId, header) {
+        const lastMessage = document.querySelector(`#chat .mes[mesid="${previousMessageId}"]`);
+        const thoughtsTemplate = this.#createThoughtsBlock(thoughtsId, header);
+
+        lastMessage.classList.remove('last_mes');
+        lastMessage.after(thoughtsTemplate);
+    }
+
+    /**
+     * @param {string} id
+     * @param {string} thought
+     * @return {void}
+     */
+    addThoughtToBlock(id, thought) {
+        const thoughtsTemplate = this.#findThoughtsBlock(id);
+        thoughtsTemplate.innerHTML += thought;
+    }
+
+    /**
+     * @param {int} messageToBindId
+     * @param {string} thoughtsId
+     * @param {?string} previousThoughtsId
+     */
+    bindThoughtsBlock(messageToBindId, thoughtsId, previousThoughtsId = null) {
+        const thoughtsBlock = this.#findThoughtsBlock(previousThoughtsId ?? thoughtsId);
+        this.#updateThoughtBlockId(thoughtsBlock, thoughtsId);
+
+        const messageBlock = document.querySelector(`#chat .mes[mesid="${messageToBindId}"]`);
+        this.#attachMessageToThoughts(messageBlock, thoughtsId);
+    }
+
+    /**
+     * @param {string} id
+     * @param {boolean} isHidden
+     * @return {void}
+     */
+    findThoughtAndRenderHidingState(id, isHidden) {
+        const thoughtsBlock = this.#findThoughtsBlock(id);
+        if (thoughtsBlock) {
+            this.#renderHidingState(thoughtsBlock, isHidden);
+        }
     }
 
     /**
      * @return {void}
      */
-    #removeUnboundThoughtBlocks() {
-        $('#chat .thoughts').each((id, thoughtsBlock) => {
+    removeUnboundThoughtBlocks() {
+        $('#chat .thoughts').each((_, thoughtsBlock) => {
             const thoughtsId = thoughtsBlock.getAttribute('thoughts_id');
             const boundMessageBlock = document.querySelector(`#chat .mes[thoughts_id="${thoughtsId}"]`);
             if (!boundMessageBlock) {
@@ -500,10 +631,10 @@ class EmbeddedThoughtsStrategy {
     /**
      * @return {void}
      */
-    #renderThoughtBlocks() {
+    renderThoughtBlocks() {
         const context = getContext();
 
-        $('#chat .mes').each((id, messageBlock) => {
+        $('#chat .mes').each((_, messageBlock) => {
             if (messageBlock.getAttribute('thoughts_rendered') === 'true') {
                 this.#reattachDetachedThoughtBlocks(messageBlock);
                 return;
@@ -528,6 +659,33 @@ class EmbeddedThoughtsStrategy {
             messageBlock.before(thoughtsBlock);
             this.#attachMessageToThoughts(messageBlock, message.thoughts_id);
         });
+    }
+
+    /**
+     * @param {string} id
+     * @return {void}
+     */
+    unbindOrphanThoughtsBlock(id) {
+        const lastThoughtsBlock = this.#findThoughtsBlock(id);
+        if (!lastThoughtsBlock) {
+            return;
+        }
+
+        const siblingElement = this.#findClosestSibling(lastThoughtsBlock, 'mes', 'down');
+        if (siblingElement
+            && siblingElement.classList.contains('mes')
+            && siblingElement.getAttribute('thoughts_rendered') !== 'true') {
+            return;
+        }
+
+        lastThoughtsBlock.classList.add('unbound_thoughts');
+    }
+
+    /**
+     * @return {void}
+     */
+    purgeUnboundThoughts() {
+        document.querySelector('.unbound_thoughts')?.remove();
     }
 
     /**

@@ -1,11 +1,14 @@
 import { getContext } from '../../../../extensions.js';
 import {
+    event_types,
     eventSource,
     extractMessageBias,
     sendMessageAsUser,
 } from '../../../../../script.js';
 import { generationCaptured, releaseGeneration } from '../interconnection.js';
 import { settings } from '../settings/settings.js';
+import { is_group_generating } from '../../../../group-chats.js';
+import { LAST_THOUGHT_ID } from './strategy.js';
 
 let isThinking = false;
 let toastThinking, sendTextareaOriginalPlaceholder;
@@ -16,7 +19,8 @@ export const thinkingEvents = {
     ON_PUT: 'ON_PUT_THOUGHTS',
     ON_SAVE: 'ON_SAVE_THOUGHTS',
     ON_RENDER: 'ON_RENDER_THOUGHTS',
-    ON_UNBIND_ORPHANS: 'ON_UNBIND_ORPHAN_THOUGHTS',
+    ON_MAKE_ORPHANS: 'ON_MAKE_INTERMEDIATE_THOUGHTS_ORPHANS',
+    ON_REMOVE_ORPHANS: 'ON_REMOVE_ORPHAN_THOUGHTS',
     ON_PREPARE_GENERATION: 'ON_PREPARE_GENERATION_THOUGHTS',
 };
 
@@ -26,9 +30,9 @@ export const thinkingEvents = {
  * @property {?string} thoughtsMetadataId
  */
 
-class ThinkingEvent {
+export class ThinkingEvent {
     /**
-     * @type {boolean}
+     * @var {boolean}
      */
     #defaultPrevented = false;
 
@@ -41,9 +45,9 @@ class ThinkingEvent {
     }
 }
 
-class OnSendThoughtsTemplateEvent extends ThinkingEvent {
+export class OnSendThoughtsTemplateEvent extends ThinkingEvent {
     /**
-     * @type {ThoughtsCoordinates}
+     * @var {ThoughtsCoordinates}
      */
     #coordinates = { thoughtsMessageId: null, thoughtsMetadataId: null };
 
@@ -60,13 +64,13 @@ class OnSendThoughtsTemplateEvent extends ThinkingEvent {
     }
 }
 
-class OnPutThoughtsEvent extends ThinkingEvent {
+export class OnPutThoughtsEvent extends ThinkingEvent {
     /**
-     * @type {ThoughtsCoordinates}
+     * @var {ThoughtsCoordinates}
      */
     #coordinates;
     /**
-     * @type {string}
+     * @var {string}
      */
     #thought;
 
@@ -89,13 +93,13 @@ class OnPutThoughtsEvent extends ThinkingEvent {
     }
 }
 
-class OnSaveThoughtsEvent extends ThinkingEvent {
+export class OnSaveThoughtsEvent extends ThinkingEvent {
     /**
-     * @type {number|string}
+     * @var {number|string}
      */
     #thoughtsMetadataId;
     /**
-     * @type {number}
+     * @var {number}
      */
     #messageId;
 
@@ -114,9 +118,9 @@ class OnSaveThoughtsEvent extends ThinkingEvent {
     }
 }
 
-class OnRenderThoughtsEvent extends ThinkingEvent {
+export class OnRenderThoughtsEvent extends ThinkingEvent {
     /**
-     * @type {boolean}
+     * @var {boolean}
      */
     #isInitialCall;
 
@@ -129,6 +133,167 @@ class OnRenderThoughtsEvent extends ThinkingEvent {
         return this.#isInitialCall;
     }
 }
+
+// event listeners
+
+/**
+ * @return {void}
+ */
+export function registerGenerationEventListeners() {
+    eventSource.on(event_types.GENERATION_STOPPED, stopChatThinking);
+    // todo remove afterwards
+    // eventSource.on(event_types.GENERATE_AFTER_COMBINE_PROMPTS, (event) => console.log('STDEBUG Final Prompt', event.prompt));
+    eventSource.on(event_types.GENERATION_STARTED, removeOrphanThoughts);
+    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onlyWhenExtensionEnabledDecorator(runChatThinking));
+    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onlyWhenExtensionEnabledDecorator(prepareGenerationPrompt));
+
+    eventSource.on(event_types.MESSAGE_RECEIVED, saveLastThoughts);
+    eventSource.on(event_types.MESSAGE_DELETED, onlyWhenExtensionEnabledDecorator(renderThoughts));
+    eventSource.on(event_types.CHAT_CHANGED, onlyWhenExtensionEnabledDecorator(renderInitialThoughts));
+    $(document).on('mouseup touchend', '#show_more_messages', onlyWhenExtensionEnabledDecorator(renderThoughts));
+}
+
+/**
+ * @param {function(): Promise|void} handler
+ * @return {function(): void}
+ */
+function onlyWhenExtensionEnabledDecorator(handler) {
+    return async function () {
+        if (!settings.is_enabled) {
+            return;
+        }
+
+        const result = handler();
+        if (result instanceof Promise) {
+            await result;
+        }
+    };
+}
+
+/**
+ * @returns {Promise<void>}
+ */
+async function stopChatThinking() {
+    await stopThinking($('#send_textarea'));
+}
+
+/**
+ * @param {string} type
+ * @return {Promise<void>}
+ */
+async function runChatThinking(type) {
+    if (!isGenerationTypeAllowed(type) || isThinking) {
+        return;
+    }
+    if (isThinkingSkipped()) {
+        await hideThoughts();
+        return;
+    }
+
+    await runThinking($('#send_textarea'));
+    await generationDelay();
+}
+
+/**
+ * @param {string} type
+ * @return {boolean}
+ */
+function isGenerationTypeAllowed(type) {
+    if (getContext().groupId) {
+        if (!is_group_generating) {
+            return false;
+        }
+        if (type !== 'normal' && type !== 'group_chat') {
+            return false;
+        }
+    } else {
+        if (type) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function saveLastThoughts() {
+    await saveThoughts(LAST_THOUGHT_ID, getContext().chat.length - 1);
+}
+
+/**
+ * @param {number|string} thoughtsMetadataId
+ * @param {number} messageId
+ * @return {Promise<void>}
+ */
+async function saveThoughts(thoughtsMetadataId, messageId) {
+    await eventSource.emit(thinkingEvents.ON_SAVE, new OnSaveThoughtsEvent(thoughtsMetadataId, messageId));
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function renderInitialThoughts() {
+    await eventSource.emit(thinkingEvents.ON_RENDER, new OnRenderThoughtsEvent(true));
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function renderThoughts() {
+    await eventSource.emit(thinkingEvents.ON_RENDER, new OnRenderThoughtsEvent(false));
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function hideThoughts() {
+    await eventSource.emit(thinkingEvents.ON_HIDE, new ThinkingEvent());
+}
+
+/**
+ * @return {Promise<ThoughtsCoordinates>}
+ */
+async function sendCharacterTemplateMessage() {
+    const event = new OnSendThoughtsTemplateEvent();
+    await eventSource.emit(thinkingEvents.ON_SEND_TEMPLATE, event);
+
+    return event.coordinates;
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function prepareGenerationPrompt() {
+    await eventSource.emit(thinkingEvents.ON_PREPARE_GENERATION, new ThinkingEvent());
+}
+
+/**
+ * @param {ThoughtsCoordinates} coordinates
+ * @param {string} thought
+ * @return {Promise<void>}
+ */
+async function putCharactersThoughts(coordinates, thought) {
+    await eventSource.emit(thinkingEvents.ON_PUT, new OnPutThoughtsEvent(coordinates, thought));
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function makeIntermediateThoughtsOrphans() {
+    await eventSource.emit(thinkingEvents.ON_MAKE_ORPHANS, new ThinkingEvent());
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function removeOrphanThoughts() {
+    await eventSource.emit(thinkingEvents.ON_REMOVE_ORPHANS, new ThinkingEvent());
+}
+
+
+// core functions
 
 /**
  * @return {CharacterThinkingSettings|undefined}
@@ -170,49 +335,9 @@ export async function stopThinking(textarea) {
         textarea.attr('placeholder', sendTextareaOriginalPlaceholder);
     }
 
-    await unbindOrphanThoughts();
+    await makeIntermediateThoughtsOrphans();
 
     releaseGeneration();
-}
-
-/**
- * @param {number|string} thoughtsMetadataId
- * @param {number} messageId
- * @return {Promise<void>}
- */
-export async function saveThoughts(thoughtsMetadataId, messageId) {
-    await eventSource.emit(thinkingEvents.ON_SAVE, new OnSaveThoughtsEvent(thoughtsMetadataId, messageId));
-}
-
-/**
- * @return {Promise<void>}
- */
-export async function renderInitialThoughts() {
-    await eventSource.emit(thinkingEvents.ON_RENDER, new OnRenderThoughtsEvent(true));
-}
-
-/**
- * @return {Promise<void>}
- */
-export async function renderThoughts() {
-    await eventSource.emit(thinkingEvents.ON_RENDER, new OnRenderThoughtsEvent(false));
-}
-
-/**
- * @param {JQuery<HTMLTextAreaElement>} textarea
- * @return {Promise<void>}
- */
-export async function runChatThinking(textarea) {
-    if (isThinking || !settings.is_enabled) {
-        return;
-    }
-    if (isThinkingSkipped()) {
-        await hideThoughts();
-        return;
-    }
-
-    await runThinking(textarea);
-    await generationDelay();
 }
 
 /**
@@ -317,7 +442,6 @@ async function generateThoughts(targetPromptIds = null) {
 async function generateCharacterThought(prompt) {
     const context = getContext();
 
-    await prepareGenerationPrompt();
     let result = await context.generateQuietPrompt(
         prompt,
         false,
@@ -333,46 +457,6 @@ async function generateCharacterThought(prompt) {
     }
 
     return result;
-}
-
-/**
- * @return {Promise<void>}
- */
-async function hideThoughts() {
-    await eventSource.emit(thinkingEvents.ON_HIDE, new ThinkingEvent());
-}
-
-/**
- * @return {Promise<ThoughtsCoordinates>}
- */
-async function sendCharacterTemplateMessage() {
-    const event = new OnSendThoughtsTemplateEvent();
-    await eventSource.emit(thinkingEvents.ON_SEND_TEMPLATE, event);
-
-    return event.coordinates;
-}
-
-/**
- * @return {Promise<void>}
- */
-async function prepareGenerationPrompt() {
-    await eventSource.emit(thinkingEvents.ON_PREPARE_GENERATION, new ThinkingEvent());
-}
-
-/**
- * @param {ThoughtsCoordinates} coordinates
- * @param {string} thought
- * @return {Promise<void>}
- */
-async function putCharactersThoughts(coordinates, thought) {
-    await eventSource.emit(thinkingEvents.ON_PUT, new OnPutThoughtsEvent(coordinates, thought));
-}
-
-/**
- * @return {Promise<void>}
- */
-async function unbindOrphanThoughts() {
-    await eventSource.emit(thinkingEvents.ON_UNBIND_ORPHANS, new ThinkingEvent());
 }
 
 /**
