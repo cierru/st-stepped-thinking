@@ -32,3 +32,17 @@
     background-color: rgba(255, 0, 0, 0.1);
     background-blend-mode: multiply;
 }
+
+.shutdown_button {
+    width: fit-content;
+}
+
+.shutdown_activate {
+    background-color: rgba(255, 0, 0, 0.1);
+    background-blend-mode: multiply;
+}
+
+.shutdown_disable {
+    background-color: rgba(0, 255, 0, 0.1);
+    background-blend-mode: multiply;
+}

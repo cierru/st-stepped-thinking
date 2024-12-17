@@ -486,12 +486,13 @@ class EmbeddedThoughtsStrategy {
         const characterSettings = getCurrentCharacterSettings();
 
         const isMindReaderCharacter = Boolean(characterSettings && characterSettings.is_mind_reader);
+        const isGeneratingForCurrentCharacter = (message) => context.chatMetadata.thought_generation && message.name === currentCharacter.name;
 
         const lastMessageIndex = context.chat.length - 1;
         for (let i = lastMessageIndex, revealedThoughtsCount = []; i >= 0 && (lastMessageIndex - i < settings.max_hiding_thoughts_lookup); i--) {
             const message = context.chat[i];
 
-            revealedThoughtsCount[message.name] ??= 0;
+            revealedThoughtsCount[message.name] ??= isGeneratingForCurrentCharacter(message) ? 1 : 0;
             revealedThoughtsCount[message.name] += this.#revealThought(
                 context.chat[i],
                 revealedThoughtsCount[message.name],
@@ -541,7 +542,9 @@ class EmbeddedThoughtsStrategy {
         }
 
         const previousHidingState = characterThoughts.is_hidden;
-        characterThoughts.is_hidden = revealedCharThoughtsCount >= settings.max_thoughts_in_prompt
+        characterThoughts.is_hidden =
+            message.is_system
+            || revealedCharThoughtsCount >= settings.max_thoughts_in_prompt
             || (!isMindReaderCharacter && currentCharacterName !== message.name);
 
         if (previousHidingState !== characterThoughts.is_hidden) {

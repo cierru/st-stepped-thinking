@@ -144,26 +144,29 @@ export function registerGenerationEventListeners() {
     // todo remove afterwards
     // eventSource.on(event_types.GENERATE_AFTER_COMBINE_PROMPTS, (event) => console.log('STDEBUG Final Prompt', event.prompt));
     eventSource.on(event_types.GENERATION_STARTED, removeOrphanThoughts);
-    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onlyWhenExtensionEnabledDecorator(runChatThinking));
-    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onlyWhenExtensionEnabledDecorator(prepareGenerationPrompt));
+    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onWhenLiveDecorator(runChatThinking));
+    eventSource.on(event_types.GENERATION_AFTER_COMMANDS, onWhenLiveDecorator(prepareGenerationPrompt));
 
     eventSource.on(event_types.MESSAGE_RECEIVED, saveLastThoughts);
-    eventSource.on(event_types.MESSAGE_DELETED, onlyWhenExtensionEnabledDecorator(renderThoughts));
-    eventSource.on(event_types.CHAT_CHANGED, onlyWhenExtensionEnabledDecorator(renderInitialThoughts));
-    $(document).on('mouseup touchend', '#show_more_messages', onlyWhenExtensionEnabledDecorator(renderThoughts));
+    eventSource.on(event_types.MESSAGE_DELETED, onWhenLiveDecorator(renderThoughts));
+    eventSource.on(event_types.CHAT_CHANGED, onWhenLiveDecorator(renderInitialThoughts));
+    $(document).on('mouseup touchend', '#show_more_messages', onWhenLiveDecorator(renderThoughts));
+    $(document).on('click', '.mes_hide', hideThoughts);
+    $(document).on('click', '.mes_unhide', hideThoughts);
 }
 
+// TODO consider adding "shutdown extension"
 /**
- * @param {function(): Promise|void} handler
- * @return {function(): void}
+ * @param {function(...): Promise|void} handler
+ * @return {function(...): void}
  */
-function onlyWhenExtensionEnabledDecorator(handler) {
-    return async function () {
-        if (!settings.is_enabled) {
+function onWhenLiveDecorator(handler) {
+    return async function (...args) {
+        if (settings.is_shutdown) {
             return;
         }
 
-        const result = handler();
+        const result = handler(...args);
         if (result instanceof Promise) {
             await result;
         }
@@ -182,7 +185,7 @@ async function stopChatThinking() {
  * @return {Promise<void>}
  */
 async function runChatThinking(type) {
-    if (!isGenerationTypeAllowed(type) || isThinking) {
+    if (!settings.is_enabled || !isGenerationTypeAllowed(type) || isThinking) {
         return;
     }
     if (isThinkingSkipped()) {
@@ -195,7 +198,7 @@ async function runChatThinking(type) {
 }
 
 /**
- * @param {string} type
+ * @param {?string} type
  * @return {boolean}
  */
 function isGenerationTypeAllowed(type) {

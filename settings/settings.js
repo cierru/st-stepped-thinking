@@ -1,5 +1,5 @@
 import { extensionName } from '../index.js';
-import { event_types, eventSource, saveSettingsDebounced } from '../../../../../script.js';
+import { event_types, eventSource, saveSettings, saveSettingsDebounced } from '../../../../../script.js';
 import { select2ChoiceClickSubscribe } from '../../../../utils.js';
 import { getCurrentCharacterSettings } from '../thinking/engine.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../../extensions.js';
@@ -76,6 +76,7 @@ function migrateSettingsV2(settings) {
 
 const defaultCommonSettings = {
     'is_enabled': true,
+    'is_shutdown': false,
     'is_wian_skipped': false,
     'is_thinking_popups_enabled': true,
     'is_thoughts_spoiler_open': false,
@@ -101,6 +102,12 @@ const defaultCommonSettings = {
  * @return {void}
  */
 function loadCommonSettings() {
+    if (settings.is_shutdown) {
+        $('#stepthink_is_shutdown').addClass('shutdown_disable').text('Turn On Stepped Thinking');
+    } else {
+        $('#stepthink_is_shutdown').addClass('shutdown_activate').text('Shutdown Stepped Thinking');
+    }
+
     $('#stepthink_regexp_to_sanitize').val(settings.regexp_to_sanitize);
     $('#stepthink_system_character_name_template').val(settings.system_character_name_template);
     $('#stepthink_thoughts_message_template').val(settings.thoughts_message_template);
@@ -124,7 +131,10 @@ function loadCommonSettings() {
  * @return {void}
  */
 function registerCommonSettingListeners() {
+    $('#stepthink_is_shutdown').on('click', onShutdownClick);
+
     $('#stepthink_is_enabled').on('input', onCheckboxInput('is_enabled'));
+    $('#stepthink_is_shutdown').on('input', onCheckboxInput('is_shutdown'));
     $('#stepthink_is_wian_skipped').on('input', onCheckboxInput('is_wian_skipped'));
     $('#stepthink_is_thoughts_spoiler_open').on('input', onCheckboxInput('is_thoughts_spoiler_open'));
     $('#stepthink_is_thinking_popups_enabled').on('input', onCheckboxInput('is_thinking_popups_enabled'));
@@ -157,6 +167,26 @@ function registerCommonSettingListeners() {
             $('#stepthink_thoughts_placeholder_end').val(defaultCommonSettings.thoughts_placeholder.end).trigger('input');
         },
     );
+}
+
+/**
+ * @return {void}
+ */
+async function onShutdownClick() {
+    if (!settings.is_shutdown) {
+        const confirmationResult = await callGenericPopup(
+            'Are you sure you want to shut down Stepped Thinking?<br/>The page will be reloaded.',
+            POPUP_TYPE.CONFIRM
+        );
+        if (!confirmationResult) {
+            return;
+        }
+    }
+
+    settings.is_shutdown = !settings.is_shutdown;
+    await saveSettings();
+
+    location.reload();
 }
 
 /**
