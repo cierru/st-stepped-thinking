@@ -1,7 +1,7 @@
 import {
     addOneMessage,
     event_types,
-    eventSource,
+    eventSource, extension_prompt_roles, extension_prompt_types,
     extension_prompts,
     extractMessageBias,
     removeMacros,
@@ -365,7 +365,11 @@ class EmbeddedThoughtsStrategy {
         const thoughtsMetadataId = this.LAST_THOUGHT_ID;
 
         /** @type {ThoughtsGeneration} */
-        context.chatMetadata.thought_generation = { header: '<h4>Thinking...<h4/>', is_hidden: false, thoughts: [] };
+        context.chatMetadata.thought_generation = {
+            header: context.substituteParams(settings.thoughts_block_header),
+            is_hidden: false,
+            thoughts: []
+        };
 
         this.#ui.purgeUnboundThoughts();
         this.#ui.insertThoughtsTemplateBlock(
@@ -390,13 +394,12 @@ class EmbeddedThoughtsStrategy {
         for (let i = lastMessageId; i >= 0; i--) {
             const message = context.chat[i];
             if (message.character_thoughts && !message.character_thoughts.is_hidden) {
-                this.#injectThoughts(message.character_thoughts.thoughts, message.thoughts_id, lastMessageId - i + 1);
+                this.#injectThoughts(message.character_thoughts, message.thoughts_id, lastMessageId - i + 1);
             }
         }
 
-        const lastThoughts = context.chatMetadata.thought_generation?.thoughts;
-        if (lastThoughts) {
-            this.#injectThoughts(lastThoughts, this.LAST_THOUGHT_ID, 0);
+        if (context.chatMetadata.thought_generation) {
+            this.#injectThoughts(context.chatMetadata.thought_generation, this.LAST_THOUGHT_ID, 0);
         }
     }
 
@@ -503,18 +506,32 @@ class EmbeddedThoughtsStrategy {
     }
 
     /**
-     * @param {array<Thought>} thoughts
+     * @param {ThoughtsGeneration} generatedThoughts
      * @param {string} thoughtsId
      * @param {number} depth
      * @return {void}
      */
-    #injectThoughts(thoughts, thoughtsId, depth) {
-        const thoughtsPrompt = thoughts.reduce(
-            (result, currentThought) => result + '|' + currentThought.thought,
-            ''
+    #injectThoughts(generatedThoughts, thoughtsId, depth) {
+        const thoughtsLastIndex = generatedThoughts.thoughts.length - 1;
+        const thoughtsPrompt = generatedThoughts.thoughts.reduce(
+            (result, currentThought, index) => result
+                + settings.thought_injection_template
+                    .replaceAll('{{thought}}', currentThought.thought)
+                    .replaceAll('{{prompt_name}}', 'PROMPT_NAME') // todo actual prompt name
+                    .replaceAll('{{lowercase(prompt_name)}}', 'prompt_name') // todo actual lowercase prompt name
+                + (index !== thoughtsLastIndex ? settings.thought_injection_separator : '')
+            ,
+            generatedThoughts.header + ': '
         );
 
-        setExtensionPrompt(`${this.EXTENSION_PROMPT_PREFIX}_${thoughtsId}`, thoughtsPrompt, 1, depth, true);
+        setExtensionPrompt(
+            `${this.EXTENSION_PROMPT_PREFIX}_${thoughtsId}`,
+            thoughtsPrompt,
+            extension_prompt_types.IN_CHAT,
+            depth,
+            true,
+            settings.sending_thoughts_role
+        );
     }
 
     /**

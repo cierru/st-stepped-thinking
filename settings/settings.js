@@ -75,17 +75,19 @@ function migrateSettingsV2(settings) {
 // settings - common
 
 const defaultCommonSettings = {
-    'is_enabled': true,
     'is_shutdown': false,
+    'is_enabled': true,
     'is_wian_skipped': false,
     'is_thinking_popups_enabled': true,
     'is_thoughts_spoiler_open': false,
     'is_thoughts_as_system': false,
+    'mode': 'embedded',
     'max_thoughts_in_prompt': 2,
     'generation_delay': 0.0,
     'max_response_length': 0,
     'regexp_to_sanitize': '(<\\/?details\\s?(type="executing")?>)|(<\\/?summary>)|(Thinking ({{char}}) 💭)|(```)',
     'max_hiding_thoughts_lookup': 1000,
+
     'system_character_name_template': '{{char}}\'s Thoughts',
     'thoughts_message_template': '<details type="executing" {{thoughts_spoiler_open_state}}><summary>Thinking ({{char}}) 💭</summary>\n' +
         '{{thoughts_placeholder}}\n' +
@@ -96,17 +98,21 @@ const defaultCommonSettings = {
         'default_content': '...',
         'end': '```',
     },
+
+    'sending_thoughts_role': 0,
+    'thoughts_block_header': '{{char}}\'s Thoughts',
+    'thought_injection_template': '<{{lowercase(prompt_name)}}>{{thought}}</{{lowercase(prompt_name)}}>',
+    'thought_injection_separator': '\n'
 };
 
 /**
  * @return {void}
  */
 function loadCommonSettings() {
-    if (settings.is_shutdown) {
-        $('#stepthink_is_shutdown').addClass('shutdown_disable').text('Turn On Stepped Thinking');
-    } else {
-        $('#stepthink_is_shutdown').addClass('shutdown_activate').text('Shutdown Stepped Thinking');
-    }
+    $('#stepthink_is_shutdown').addClass(settings.is_shutdown ? 'stepthink_shutdown_turn_on' : 'stepthink_shutdown_turn_off');
+
+    $(`#stepthink_mode option[value="${settings.mode}"]`).prop('selected', 'true');
+    activateThinkingMode(settings.mode);
 
     $('#stepthink_regexp_to_sanitize').val(settings.regexp_to_sanitize);
     $('#stepthink_system_character_name_template').val(settings.system_character_name_template);
@@ -121,6 +127,11 @@ function loadCommonSettings() {
     $('#stepthink_is_thinking_popups_enabled').prop('checked', settings.is_thinking_popups_enabled).trigger('input');
     $('#stepthink_is_thoughts_as_system').prop('checked', settings.is_thoughts_as_system).trigger('input');
 
+    $(`#stepthink_sending_thoughts_role option[value="${settings.sending_thoughts_role}"]`).prop('selected', 'true');
+    $('#stepthink_thoughts_block_header').val(settings.thoughts_block_header);
+    $('#stepthink_thought_injection_template').val(settings.thought_injection_template);
+    $('#stepthink_thought_injection_separator').val(settings.thought_injection_separator);
+
     $('#stepthink_thoughts_placeholder_start').val(settings.thoughts_placeholder.start);
     $('#stepthink_thoughts_placeholder_content').val(settings.thoughts_placeholder.content);
     $('#stepthink_thoughts_placeholder_default_content').val(settings.thoughts_placeholder.default_content);
@@ -132,6 +143,8 @@ function loadCommonSettings() {
  */
 function registerCommonSettingListeners() {
     $('#stepthink_is_shutdown').on('click', onShutdownClick);
+
+    $('#stepthink_mode').on('input', onSwitchThinkingMode);
 
     $('#stepthink_is_enabled').on('input', onCheckboxInput('is_enabled'));
     $('#stepthink_is_shutdown').on('input', onCheckboxInput('is_shutdown'));
@@ -146,6 +159,14 @@ function registerCommonSettingListeners() {
     $('#stepthink_max_response_length').on('input', onIntegerTextareaInput('max_response_length'));
     $('#stepthink_generation_delay').on('input', onGenerationDelayInput);
     $('#stepthink_max_hiding_thoughts_lookup').on('input', onIntegerTextareaInput('max_hiding_thoughts_lookup'));
+
+    $('#stepthink_sending_thoughts_role').on('input', onIntegerTextareaInput('sending_thoughts_role'));
+    $('#stepthink_thoughts_block_header').on('input', onTextareaInput('thoughts_block_header'));
+    $('#stepthink_thought_injection_template').on('input', onTextareaInput('thought_injection_template'));
+    $('#stepthink_thought_injection_separator').on('input', onTextareaInput('thought_injection_separator'));
+    $('#stepthink_restore_thought_injection_template').on('click', () =>
+        $('#stepthink_thought_injection_template').val(defaultCommonSettings.thought_injection_template).trigger('input')
+    );
 
     $('#stepthink_thoughts_placeholder_start').on('input', onTextareaInput('thoughts_placeholder', 'start'));
     $('#stepthink_thoughts_placeholder_content').on('input', onTextareaInput('thoughts_placeholder', 'content'));
@@ -175,7 +196,7 @@ function registerCommonSettingListeners() {
 async function onShutdownClick() {
     if (!settings.is_shutdown) {
         const confirmationResult = await callGenericPopup(
-            'Are you sure you want to shut down Stepped Thinking?<br/>The page will be reloaded.',
+            'Are you sure you want to shut down Stepped Thinking? You won\'t lose the generated thoughts.<br/>The page will be reloaded.',
             POPUP_TYPE.CONFIRM
         );
         if (!confirmationResult) {
@@ -187,6 +208,16 @@ async function onShutdownClick() {
     await saveSettings();
 
     location.reload();
+}
+
+/**
+ * @return {void}
+ */
+function onSwitchThinkingMode() {
+    settings.mode = $(this).val();
+    activateThinkingMode(settings.mode);
+
+    saveSettingsDebounced();
 }
 
 /**
@@ -225,7 +256,7 @@ function onIntegerTextareaInput(settingName) {
 }
 
 /**
- * @param {string[]} settingNames
+ * @param {...string} settingNames
  * @return {(function(): void)}
  */
 function onTextareaInput(...settingNames) {
@@ -254,6 +285,22 @@ function onGenerationDelayInput() {
 
     settings.generation_delay = value;
     saveSettingsDebounced();
+}
+
+/**
+ * @param {string} mode
+ * @return {void}
+ */
+function activateThinkingMode(mode) {
+    if (mode === 'embedded') {
+        switchToEmbeddedThoughts();
+        $('.stepthink_mode_embedded').show();
+        $('.stepthink_mode_separated').hide();
+    } else {
+        switchToSeparatedThoughts();
+        $('.stepthink_mode_embedded').hide();
+        $('.stepthink_mode_separated').show();
+    }
 }
 
 // settings - character_settings

@@ -33,16 +33,12 @@
     background-blend-mode: multiply;
 }
 
-.shutdown_button {
-    width: fit-content;
-}
-
-.shutdown_activate {
+.stepthink_shutdown_turn_off {
     background-color: rgba(255, 0, 0, 0.1);
     background-blend-mode: multiply;
 }
 
-.shutdown_disable {
+.stepthink_shutdown_turn_on {
     background-color: rgba(0, 255, 0, 0.1);
     background-blend-mode: multiply;
 }
