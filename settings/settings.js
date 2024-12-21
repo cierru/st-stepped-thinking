@@ -88,6 +88,7 @@ const defaultCommonSettings = {
     'regexp_to_sanitize': '(<\\/?details\\s?(type="executing")?>)|(<\\/?summary>)|(Thinking ({{char}}) 💭)|(```)',
     'max_hiding_thoughts_lookup': 1000,
 
+    // separated
     'system_character_name_template': '{{char}}\'s Thoughts',
     'thoughts_message_template': '<details type="executing" {{thoughts_spoiler_open_state}}><summary>Thinking ({{char}}) 💭</summary>\n' +
         '{{thoughts_placeholder}}\n' +
@@ -99,10 +100,13 @@ const defaultCommonSettings = {
         'end': '```',
     },
 
+    // embedded
     'sending_thoughts_role': 0,
-    'thoughts_block_header': '{{char}}\'s Thoughts',
+    'thoughts_block_header_injection_mode': 'groups', // todo
+    'thoughts_block_header': '{{char}}\'s Thoughts: ', // todo
+    'general_injection_template': '{{header}}{{thoughts}}', // todo
     'thought_injection_template': '<{{lowercase(prompt_name)}}>{{thought}}</{{lowercase(prompt_name)}}>',
-    'thought_injection_separator': '\n'
+    'thought_injection_separator': '\n',
 };
 
 /**
@@ -128,7 +132,9 @@ function loadCommonSettings() {
     $('#stepthink_is_thoughts_as_system').prop('checked', settings.is_thoughts_as_system).trigger('input');
 
     $(`#stepthink_sending_thoughts_role option[value="${settings.sending_thoughts_role}"]`).prop('selected', 'true');
+    $(`#stepthink_thoughts_block_header_injection_mode option[value="${settings.thoughts_block_header_injection_mode}"]`).prop('selected', 'true');
     $('#stepthink_thoughts_block_header').val(settings.thoughts_block_header);
+    $('#stepthink_general_injection_template').val(settings.general_injection_template);
     $('#stepthink_thought_injection_template').val(settings.thought_injection_template);
     $('#stepthink_thought_injection_separator').val(settings.thought_injection_separator);
 
@@ -161,11 +167,13 @@ function registerCommonSettingListeners() {
     $('#stepthink_max_hiding_thoughts_lookup').on('input', onIntegerTextareaInput('max_hiding_thoughts_lookup'));
 
     $('#stepthink_sending_thoughts_role').on('input', onIntegerTextareaInput('sending_thoughts_role'));
+    $('#stepthink_thoughts_block_header_injection_mode').on('input', onTextareaInput('thoughts_block_header_injection_mode'));
     $('#stepthink_thoughts_block_header').on('input', onTextareaInput('thoughts_block_header'));
+    $('#stepthink_general_injection_template').on('input', onTextareaInput('general_injection_template'));
     $('#stepthink_thought_injection_template').on('input', onTextareaInput('thought_injection_template'));
     $('#stepthink_thought_injection_separator').on('input', onTextareaInput('thought_injection_separator'));
     $('#stepthink_restore_thought_injection_template').on('click', () =>
-        $('#stepthink_thought_injection_template').val(defaultCommonSettings.thought_injection_template).trigger('input')
+        $('#stepthink_thought_injection_template').val(defaultCommonSettings.thought_injection_template).trigger('input'),
     );
 
     $('#stepthink_thoughts_placeholder_start').on('input', onTextareaInput('thoughts_placeholder', 'start'));
@@ -176,10 +184,10 @@ function registerCommonSettingListeners() {
     $('#stepthink_additional_settings_toggle').on('click', () => $('#stepthink_additional_settings').slideToggle(200, 'swing'));
 
     $('#stepthink_restore_regexp_to_sanitize').on('click', () =>
-        $('#stepthink_regexp_to_sanitize').val(defaultCommonSettings.regexp_to_sanitize).trigger('input')
+        $('#stepthink_regexp_to_sanitize').val(defaultCommonSettings.regexp_to_sanitize).trigger('input'),
     );
     $('#stepthink_restore_thoughts_message_template').on('click', () =>
-        $('#stepthink_thoughts_message_template').val(defaultCommonSettings.thoughts_message_template).trigger('input')
+        $('#stepthink_thoughts_message_template').val(defaultCommonSettings.thoughts_message_template).trigger('input'),
     );
     $('#stepthink_restore_thoughts_placeholder').on('click', () => {
             $('#stepthink_thoughts_placeholder_start').val(defaultCommonSettings.thoughts_placeholder.start).trigger('input');
@@ -197,7 +205,7 @@ async function onShutdownClick() {
     if (!settings.is_shutdown) {
         const confirmationResult = await callGenericPopup(
             'Are you sure you want to shut down Stepped Thinking? You won\'t lose the generated thoughts.<br/>The page will be reloaded.',
-            POPUP_TYPE.CONFIRM
+            POPUP_TYPE.CONFIRM,
         );
         if (!confirmationResult) {
             return;
@@ -458,11 +466,13 @@ async function showCharacterSettingsPopup(characterName) {
     $(`#stepthink_is_thinking_enabled--${shortName}`).on('input', onCheckboxInput('is_thinking_enabled', setting));
     $(`#stepthink_is_mind_reader--${shortName}`).on('input', onCheckboxInput('is_mind_reader', setting));
 
-    $(`#stepthink_prompt_list_add--${shortName}`).on('click', onPromptItemAdd({
-        owner: shortName,
-        prompts_element: $(`#stepthink_prompt_list--${shortName}`),
-        prompts_settings: setting.thinking_prompts,
-    }));
+    $(`#stepthink_prompt_list_add--${shortName}`).on('click', ThinkingPromptList.onPromptItemAdd(
+        $(`#stepthink_prompt_list--${shortName}`),
+        new ThinkingPromptSettings(
+            setting.thinking_prompts,
+            shortName,
+        ),
+    ));
 }
 
 /**
@@ -480,11 +490,9 @@ function onCharacterSettingReady(shortName, setting) {
         setting.thinking_prompts.forEach(prompt => {
             renderThinkingPromptAt(
                 prompt.id,
-                {
-                    owner: shortName,
-                    prompts_element: list,
-                    prompts_settings: setting.thinking_prompts,
-                },
+                list,
+                settings.thinking_prompts,
+                shortName,
             );
         });
     };
@@ -574,15 +582,9 @@ function onLoadCharacters() {
 /**
  * @typedef {object} ThinkingPrompt
  * @property {number} id - synthetic key
+ * @property {string} name - name of the prompt (used only in the embedded thoughts mode)
  * @property {string} prompt - the prompt to be injected in the end of the main prompt
  * @property {boolean} is_enabled - whether the prompt will be used or not
- */
-
-/**
- * @typedef {object} ThinkingPromptTuple
- * @property {?string} owner - the character that "owns" these prompts. Empty value means no owner (default prompts)
- * @property {JQuery<HTMLDivElement>|ParentNode} prompts_element - the DOM element visualizing the prompt settings
- * @property {ThinkingPrompt[]} prompts_settings - the corresponding stored prompt settings
  */
 
 /**
@@ -591,6 +593,7 @@ function onLoadCharacters() {
 const defaultThinkingPromptSettings = {
     'thinking_prompts': [{
         'id': 0,
+        'name': 'Thoughts',
         'prompt': 'Pause your roleplay. Describe {{char}}\'s thoughts at the current moment.\n' + '\n' +
             'Follow the next rules:\n' +
             '- Describe details in md-list format\n' +
@@ -605,6 +608,7 @@ const defaultThinkingPromptSettings = {
         'is_enabled': true,
     }, {
         'id': 1,
+        'name': 'Plans',
         'prompt': 'Pause your roleplay. Describe {{char}}\'s plans at the current moment.\n' + '\n' +
             'Follow the next rules:\n' +
             '- Describe details in ordered md-list format\n' +
@@ -629,10 +633,8 @@ function loadThinkingPromptSettings() {
     settings.thinking_prompts.forEach(prompt => {
         renderThinkingPromptAt(
             prompt.id,
-            {
-                prompts_element: list,
-                prompts_settings: settings.thinking_prompts,
-            },
+            list,
+            settings.thinking_prompts,
         );
     });
 }
@@ -641,117 +643,340 @@ function loadThinkingPromptSettings() {
  * @return {void}
  */
 function registerThinkingPromptListeners() {
-    $('#stepthink_prompt_list_add').on('click', onPromptItemAdd({
-        prompts_element: $('#stepthink_prompt_list'),
-        prompts_settings: settings.thinking_prompts,
-    }));
+    $('#stepthink_prompt_list_add').on('click', ThinkingPromptList.onPromptItemAdd(
+        $('#stepthink_prompt_list'),
+        new ThinkingPromptSettings(settings.thinking_prompts),
+    ));
+}
+
+class ThinkingPromptSettings {
+    /**
+     * @var {ThinkingPrompt[]}
+     */
+    #settings;
+    /**
+     * @var {?string}
+     */
+    #owner;
+
+    constructor(promptsSettings, owner = null) {
+        this.#settings = promptsSettings;
+        this.#owner = owner;
+    }
+
+    /**
+     * @return {string}
+     */
+    get owner() {
+        if (!this.#owner) {
+            return '';
+        }
+
+        return this.#owner;
+    }
+
+    /**
+     * @param {string} name
+     * @param {string} prompt
+     * @param {boolean} isEnabled
+     * @return {number}
+     */
+    push(name, prompt, isEnabled) {
+        const promptsCount = this.#settings.length;
+        const id = promptsCount > 0 ? this.#settings[promptsCount - 1].id + 1 : 0;
+
+        this.#settings.push({ id: id, name: name, prompt: prompt, is_enabled: isEnabled });
+
+        return id;
+    }
+
+    /**
+     * @param {number} id
+     * @param {string} prompt
+     * @return {void}
+     */
+    updatePrompt(id, prompt) {
+        const setting = this.getSettingBy(id);
+        setting.prompt = prompt;
+    }
+
+    /**
+     * @param {number} id
+     * @param {boolean} isEnabled
+     * @return {void}
+     */
+    updateIsEnabled(id, isEnabled) {
+        const setting = this.getSettingBy(id);
+        setting.is_enabled = isEnabled;
+    }
+
+    /**
+     * @param {number} id
+     * @param {string} name
+     * @return {void}
+     */
+    updateName(id, name) {
+        const setting = this.getSettingBy(id);
+        setting.name = name;
+    }
+
+    /**
+     * @param {number} id
+     * @return {void}
+     */
+    remove(id) {
+        const arrayIndexToDelete = this.#settings.findIndex(prompt => prompt.id === id);
+        this.#settings.splice(arrayIndexToDelete, 1);
+    }
+
+    /**
+     * @param {number} id
+     * @return {ThinkingPrompt}
+     */
+    getSettingBy(id) {
+        return this.#settings.find(prompt => prompt.id === id);
+    }
+}
+
+class ThinkingPromptList {
+    /**
+     * @var {JQuery<HTMLDivElement>|ParentNode}
+     */
+    #rootElement;
+    /**
+     * @var {ThinkingPromptSettings}
+     */
+    #promptSettings;
+
+    constructor(rootElement, promptSettings) {
+        this.#rootElement = rootElement;
+        this.#promptSettings = promptSettings;
+    }
+
+    /**
+     * @param {JQuery<HTMLDivElement>|ParentNode} rootElement
+     * @param {ThinkingPromptSettings} promptSettings
+     * @return {(function(): void)}
+     */
+    static onPromptItemAdd(rootElement, promptSettings) {
+        const list = new ThinkingPromptList(rootElement, promptSettings);
+
+        return function () {
+            list.addSetting();
+            saveSettingsDebounced();
+        };
+    }
+
+    /**
+     * @param {ThinkingPromptSettings} promptSettings
+     * @return {(function(): void)}
+     */
+    static onPromptItemInput(promptSettings) {
+        return function (event) {
+            const id = Number(event.target.getAttribute('data-id'));
+            const value = event.target.value;
+
+            promptSettings.updatePrompt(id, value);
+
+            saveSettingsDebounced();
+        };
+    }
+
+
+    /**
+     * @param {ThinkingPromptSettings} promptSettings
+     * @return {(function(): void)}
+     */
+    static onPromptItemEnable(promptSettings) {
+        return function (event) {
+            const id = Number(event.target.getAttribute('data-id'));
+            const value = event.target.checked;
+
+            promptSettings.updateIsEnabled(id, value);
+
+            saveSettingsDebounced();
+        };
+    }
+
+    /**
+     * @param {ThinkingPromptSettings} promptSettings
+     * @return {(function(): void)}
+     */
+    static onPromptItemRename(promptSettings) {
+        return function (event) {
+            const id = Number(event.target.getAttribute('data-id'));
+            const value = event.target.value;
+
+            promptSettings.updateName(id, value);
+
+            saveSettingsDebounced();
+        };
+    }
+
+    /**
+     * @param {ThinkingPromptSettings} promptSettings
+     * @return {(function(): void)}
+     */
+    static onPromptItemRemove(promptSettings) {
+        return function (event) {
+            const id = Number(event.target.getAttribute('data-id'));
+
+            $(`#stepthink_prompt_item--${promptSettings?.owner}--${id}`).remove();
+            promptSettings.remove(id);
+
+            saveSettingsDebounced();
+        };
+    }
+
+    /**
+     * @param {string} name
+     * @param {string} prompt
+     * @param {boolean} isEnabled
+     * @return {void}
+     */
+    addSetting(name = '', prompt = '', isEnabled = true) {
+        const id = this.#promptSettings.push(name, prompt, isEnabled);
+        this.render(id);
+    }
+
+    /**
+     * @param {number} id
+     * @return {void}
+     */
+    render(id) {
+        const mainContainer = this.#renderMainColumnContainer(id);
+
+        mainContainer.append(
+            this.#renderPromptColumnContainer(id),
+            this.#renderButtonsColumnContainer(id)
+        );
+
+        this.#rootElement.append(mainContainer);
+    }
+
+    /**
+     * @param {number} id
+     * @return {HTMLDivElement}
+     */
+    #renderMainColumnContainer(id) {
+        const mainContainer = document.createElement('div');
+        mainContainer.setAttribute('id', `stepthink_prompt_item--${this.#promptSettings.owner}--${id}`);
+        mainContainer.classList.add('flex-container', 'marginTopBot5', 'flexFlowRow');
+
+        return mainContainer;
+    }
+
+    /**
+     * @param {number} id
+     * @return {HTMLDivElement}
+     */
+    #renderPromptColumnContainer(id) {
+        const container = document.createElement('div');
+        container.classList.add('flex-container', 'flexFlowColumn', 'thinking_prompt_container');
+
+        container.append(
+            this.#renderNameRowContainer(id),
+            this.#renderPromptAreaRowContainer(id)
+        );
+
+        return container;
+    }
+
+    /**
+     * @param {number} id
+     * @return {HTMLDivElement}
+     */
+    #renderPromptAreaRowContainer(id) {
+        const currentSetting = this.#promptSettings.getSettingBy(id);
+
+        const container = document.createElement('div');
+        container.classList.add('flex-container', 'justifySpaceBetween', 'alignItemsCenter', 'flexFlowRow');
+
+        const textArea = document.createElement('textarea');
+        textArea.setAttribute('data-id', String(id));
+        textArea.setAttribute('rows', '6');
+        textArea.classList.add('text_pole', 'textarea_compact');
+        textArea.value = currentSetting.prompt;
+
+        textArea.addEventListener('input', ThinkingPromptList.onPromptItemInput(this.#promptSettings));
+
+        container.append(textArea);
+
+        return container;
+    }
+
+    /**
+     * @param {number} id
+     * @return {HTMLDivElement}
+     */
+    #renderNameRowContainer(id) {
+        const currentSetting = this.#promptSettings.getSettingBy(id);
+
+        const container = document.createElement('div');
+        container.classList.add('flex-container', 'justifySpaceBetween', 'alignItemsCenter', 'flexFlowRow', 'stepthink_mode_embedded');
+
+        const label = document.createElement('label');
+        label.setAttribute('title', 'A name that will be used as {{prompt_name}} in the thoughts injection template');
+        label.innerText = 'Name:';
+
+        const name = document.createElement('input');
+        name.setAttribute('data-id', String(id));
+        name.classList.add('text_pole', 'textarea_compact');
+        name.value = currentSetting.name;
+
+        name.addEventListener('input', ThinkingPromptList.onPromptItemRename(this.#promptSettings));
+
+        container.append(label, name);
+        if (settings.mode !== 'embedded') {
+            container.style.display = 'none';
+        }
+
+        return container;
+    }
+
+    /**
+     * @param {number} id
+     * @return {HTMLDivElement}
+     */
+    #renderButtonsColumnContainer(id) {
+        const currentSetting = this.#promptSettings.getSettingBy(id);
+
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.classList.add('flex-container', 'alignItemsCenter', 'justifyCenter', 'flexFlowColumn');
+
+        const isEnabledButton = document.createElement('input');
+        isEnabledButton.setAttribute('data-id', String(id));
+        isEnabledButton.setAttribute('type', 'checkbox');
+        isEnabledButton.setAttribute('title', 'Enable prompt');
+        if (currentSetting.is_enabled !== false) {
+            isEnabledButton.setAttribute('checked', 'checked');
+        }
+        isEnabledButton.addEventListener('input', ThinkingPromptList.onPromptItemEnable(this.#promptSettings));
+
+        const removeButton = document.createElement('div');
+        removeButton.setAttribute('data-id', String(id));
+        removeButton.setAttribute('title', 'Remove prompt');
+        removeButton.classList.add('menu_button', 'menu_button_icon', 'fa-solid', 'fa-trash', 'redWarningBG');
+        removeButton.addEventListener('click', ThinkingPromptList.onPromptItemRemove(this.#promptSettings));
+
+        buttonsContainer.append(isEnabledButton, removeButton);
+
+        return buttonsContainer;
+    }
 }
 
 /**
  * @param {number} id
- * @param {ThinkingPromptTuple} promptTuple
+ * @param {JQuery<HTMLDivElement>|ParentNode} promptElement
+ * @param {ThinkingPrompt[]} promptsSettings
+ * @param {?string} owner
+ * @return {void}
  */
-function renderThinkingPromptAt(id, promptTuple) {
-    const currentSetting = promptTuple.prompts_settings.find(prompt => prompt.id === id);
+function renderThinkingPromptAt(id, promptElement, promptsSettings, owner = null) {
+    const list = new ThinkingPromptList(
+        promptElement,
+        new ThinkingPromptSettings(promptsSettings, owner),
+    );
 
-    const textArea = document.createElement('textarea');
-    textArea.setAttribute('data-id', String(id));
-    textArea.setAttribute('rows', '6');
-    textArea.classList.add('text_pole', 'textarea_compact');
-    if (currentSetting.prompt) {
-        textArea.value = currentSetting.prompt;
-    }
-    textArea.addEventListener('input', onPromptItemInput(promptTuple));
-
-    const buttonsContainer = document.createElement('div');
-    buttonsContainer.classList.add('flex-container', 'alignItemsCenter', 'flexFlowColumn');
-
-    const isEnabledButton = document.createElement('input');
-    isEnabledButton.setAttribute('data-id', String(id));
-    isEnabledButton.setAttribute('type', 'checkbox');
-    isEnabledButton.setAttribute('title', 'Enable prompt');
-    if (currentSetting.is_enabled !== false) {
-        isEnabledButton.setAttribute('checked', 'checked');
-    }
-    isEnabledButton.addEventListener('input', onPromptItemEnable(promptTuple));
-
-    const removeButton = document.createElement('div');
-    removeButton.setAttribute('data-id', String(id));
-    removeButton.setAttribute('title', 'Remove prompt');
-    removeButton.classList.add('menu_button', 'menu_button_icon', 'fa-solid', 'fa-trash', 'redWarningBG');
-    removeButton.addEventListener('click', onPromptItemRemove(promptTuple));
-
-    buttonsContainer.append(isEnabledButton, removeButton);
-
-    const listItem = document.createElement('div');
-    listItem.setAttribute('id', `stepthink_prompt_item--${promptTuple?.owner}--${id}`);
-    listItem.classList.add('flex-container', 'marginTopBot5', 'alignItemsCenter');
-
-    listItem.append(textArea, buttonsContainer);
-
-    promptTuple.prompts_element.append(listItem);
-}
-
-/**
- * @param {ThinkingPromptTuple} promptTuple
- * @return {(function(): void)}
- */
-function onPromptItemAdd(promptTuple) {
-    return function () {
-        const promptsCount = promptTuple.prompts_settings.length;
-        const id = promptsCount > 0 ? promptTuple.prompts_settings[promptsCount - 1].id + 1 : 0;
-
-        promptTuple.prompts_settings.push({ id: id, prompt: '', is_enabled: true });
-        renderThinkingPromptAt(id, promptTuple);
-
-        saveSettingsDebounced();
-    };
-}
-
-/**
- * @param {ThinkingPromptTuple} promptTuple
- * @return {(function(): void)}
- */
-function onPromptItemInput(promptTuple) {
-    return function (event) {
-        const id = Number(event.target.getAttribute('data-id'));
-
-        const value = event.target.value;
-        const changedPrompt = promptTuple.prompts_settings.find(prompt => prompt.id === id);
-        changedPrompt.prompt = value;
-        saveSettingsDebounced();
-    };
-}
-
-
-/**
- * @param {ThinkingPromptTuple} promptTuple
- * @return {(function(): void)}
- */
-function onPromptItemEnable(promptTuple) {
-    return function (event) {
-        const id = Number(event.target.getAttribute('data-id'));
-
-        const value = event.target.checked;
-        const changedPrompt = promptTuple.prompts_settings.find(prompt => prompt.id === id);
-        changedPrompt.is_enabled = value;
-        saveSettingsDebounced();
-    };
-}
-
-/**
- * @param {ThinkingPromptTuple} promptTuple
- * @return {(function(): void)}
- */
-function onPromptItemRemove(promptTuple) {
-    return function (event) {
-        const id = Number(event.target.getAttribute('data-id'));
-
-        $(`#stepthink_prompt_item--${promptTuple?.owner}--${id}`).remove();
-
-        const arrayIndexToDelete = promptTuple.prompts_settings.findIndex(prompt => prompt.id === id);
-        promptTuple.prompts_settings.splice(arrayIndexToDelete, 1);
-
-        saveSettingsDebounced();
-    };
+    list.render(id);
 }

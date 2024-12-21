@@ -1,11 +1,5 @@
-#stepthink_prompt_list textarea {
-    flex: 1 1 75%;
-    font-size: calc(var(--mainFontSize) * 0.9);
-    line-height: 1.2;
-}
-
-[id*=stepthink_prompt_item--]{
-    flex-flow: inherit;
+.thinking_prompt_container {
+    flex: 1 1 auto;
 }
 
 .thoughts {

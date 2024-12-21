@@ -317,6 +317,7 @@ class SeparatedThoughtsStrategy {
 /**
  * @typedef {object} Thought
  * @property {number} id
+ * @property {string} prompt_name
  * @property {string} thought
  */
 /**
@@ -384,26 +385,6 @@ class EmbeddedThoughtsStrategy {
     }
 
     /**
-     * @return {Promise<void>}
-     */
-    async prepareGenerationPrompt() {
-        const context = getContext();
-        this.#purgeInjectedThoughts();
-
-        const lastMessageId = context.chat.length - 1;
-        for (let i = lastMessageId; i >= 0; i--) {
-            const message = context.chat[i];
-            if (message.character_thoughts && !message.character_thoughts.is_hidden) {
-                this.#injectThoughts(message.character_thoughts, message.thoughts_id, lastMessageId - i + 1);
-            }
-        }
-
-        if (context.chatMetadata.thought_generation) {
-            this.#injectThoughts(context.chatMetadata.thought_generation, this.LAST_THOUGHT_ID, 0);
-        }
-    }
-
-    /**
      * @param {OnPutThoughtsEvent} event
      * @return {Promise<void>}
      */
@@ -414,7 +395,8 @@ class EmbeddedThoughtsStrategy {
         const newThoughtsLength = thoughtGeneration.thoughts.push(
             {
                 id: thoughtGeneration.thoughts.length,
-                thought: `<p>${event.thought}<p/>`,
+                prompt_name: event.promptName,
+                thought: event.thought,
             },
         );
 
@@ -443,6 +425,26 @@ class EmbeddedThoughtsStrategy {
         context.chatMetadata.thought_generation = null;
 
         await saveChatConditional();
+    }
+
+    /**
+     * @return {Promise<void>}
+     */
+    async prepareGenerationPrompt() {
+        const context = getContext();
+        this.#purgeInjectedThoughts();
+
+        const lastMessageId = context.chat.length - 1;
+        for (let i = lastMessageId; i >= 0; i--) {
+            const message = context.chat[i];
+            if (message.character_thoughts && !message.character_thoughts.is_hidden) {
+                this.#injectThoughts(message.character_thoughts, message.thoughts_id, lastMessageId - i + 1);
+            }
+        }
+
+        if (context.chatMetadata.thought_generation) {
+            this.#injectThoughts(context.chatMetadata.thought_generation, this.LAST_THOUGHT_ID, 0);
+        }
     }
 
     /**
@@ -512,21 +514,11 @@ class EmbeddedThoughtsStrategy {
      * @return {void}
      */
     #injectThoughts(generatedThoughts, thoughtsId, depth) {
-        const thoughtsLastIndex = generatedThoughts.thoughts.length - 1;
-        const thoughtsPrompt = generatedThoughts.thoughts.reduce(
-            (result, currentThought, index) => result
-                + settings.thought_injection_template
-                    .replaceAll('{{thought}}', currentThought.thought)
-                    .replaceAll('{{prompt_name}}', 'PROMPT_NAME') // todo actual prompt name
-                    .replaceAll('{{lowercase(prompt_name)}}', 'prompt_name') // todo actual lowercase prompt name
-                + (index !== thoughtsLastIndex ? settings.thought_injection_separator : '')
-            ,
-            generatedThoughts.header + ': '
-        );
+        const template = new EmbeddedThoughtsPromptTemplate(generatedThoughts);
 
         setExtensionPrompt(
             `${this.EXTENSION_PROMPT_PREFIX}_${thoughtsId}`,
-            thoughtsPrompt,
+            template.render(),
             extension_prompt_types.IN_CHAT,
             depth,
             true,
@@ -569,6 +561,74 @@ class EmbeddedThoughtsStrategy {
         }
 
         return characterThoughts.is_hidden ? 0 : 1;
+    }
+}
+
+class EmbeddedThoughtsPromptTemplate {
+    /**
+     * @var {ThoughtsGeneration}
+     */
+    #generatedThoughts;
+
+    constructor(generatedThoughts) {
+        this.#generatedThoughts = generatedThoughts;
+    }
+
+    /**
+     * @return {string}
+     */
+    render() {
+        const header = this.#renderHeader();
+        const thoughts = this.#renderThoughts();
+
+        return settings.general_injection_template
+            .replaceAll('{{header}}', header)
+            .replaceAll('{{thoughts}}', thoughts)
+        ;
+    }
+
+    /**
+     * @return {string}
+     */
+    #renderThoughts() {
+        const thoughtsLastIndex = this.#generatedThoughts.thoughts.length - 1;
+
+        return this.#generatedThoughts.thoughts.reduce(
+            (result, currentThought, index) => result
+                + settings.thought_injection_template
+                    .replaceAll('{{thought}}', currentThought.thought)
+                    .replaceAll('{{prompt_name}}', currentThought.prompt_name)
+                    .replaceAll('{{lowercase(prompt_name)}}', currentThought.prompt_name.toLowerCase())
+                + (index !== thoughtsLastIndex ? settings.thought_injection_separator : '')
+            ,
+            '');
+
+    }
+
+    /**
+     * @return {string}
+     */
+    #renderHeader() {
+        const context = getContext();
+        const isChatCompletion = (mode) => mode === 'openai';
+
+        if (!isChatCompletion(context.mainApi)) {
+            return settings.thoughts_block_header;
+        }
+
+        if (context.groupId) {
+            if (settings.thoughts_block_header_injection_mode !== 'never') {
+                return settings.thoughts_block_header;
+            }
+
+            return '';
+        }
+
+        if (settings.thoughts_block_header_injection_mode === 'always') {
+            return settings.thoughts_block_header;
+        }
+
+        return '';
     }
 }
 

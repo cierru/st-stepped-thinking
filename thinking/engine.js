@@ -72,11 +72,16 @@ export class OnPutThoughtsEvent extends ThinkingEvent {
     /**
      * @var {string}
      */
+    #promptName;
+    /**
+     * @var {string}
+     */
     #thought;
 
-    constructor(coordinates, thought) {
+    constructor(coordinates, promptName, thought) {
         super();
         this.#coordinates = coordinates;
+        this.#promptName = promptName;
         this.#thought = thought;
     }
 
@@ -86,6 +91,10 @@ export class OnPutThoughtsEvent extends ThinkingEvent {
 
     get thoughtsMetadataId() {
         return this.#coordinates.thoughtsMetadataId;
+    }
+
+    get promptName() {
+        return this.#promptName;
     }
 
     get thought() {
@@ -260,11 +269,12 @@ async function prepareGenerationPrompt() {
 
 /**
  * @param {ThoughtsCoordinates} coordinates
+ * @param {string} name
  * @param {string} thought
  * @return {Promise<void>}
  */
-async function putCharactersThoughts(coordinates, thought) {
-    await eventSource.emit(thinkingEvents.ON_PUT, new OnPutThoughtsEvent(coordinates, thought));
+async function putCharactersThoughts(coordinates, name, thought) {
+    await eventSource.emit(thinkingEvents.ON_PUT, new OnPutThoughtsEvent(coordinates, name, thought));
 }
 
 /**
@@ -409,7 +419,7 @@ async function generateThoughts(targetPromptIds = null) {
     for (let i = 0; i < prompts.length; i++) {
         if (prompts[i]?.prompt && isInTargetPrompts(prompts[i].id)) {
             const thought = await generateCharacterThought(prompts[i].prompt);
-            await putCharactersThoughts(coordinates, thought);
+            await putCharactersThoughts(coordinates, prompts[i].name, thought);
 
             if (prompts[i + 1]?.prompt) {
                 await generationDelay();

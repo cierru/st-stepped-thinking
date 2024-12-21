@@ -142,10 +142,35 @@
                     </div>
                 </div>
 
+                <div class="flex-container marginTopBot5">
+                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1"
+                         title="Often, there are special symbols and other shiza in the generation output; it will be removed by the regexp">
+                        <label for="stepthink_regexp_to_sanitize">
+                            Regexp to sanitize thoughts:
+                        </label>
+                        <div id="stepthink_restore_regexp_to_sanitize" class="menu_button margin0" title="Restore default regexp">Default</div>
+                        <input type="text" id="stepthink_regexp_to_sanitize" class="text_pole textarea_compact"/>
+                    </div>
+                </div>
+
+                <hr/>
+
                 <!-- embedded thoughts -->
+                <div class="flex-container alignItemsCenter">
+                    <label for="stepthink_thoughts_block_header_injection_mode"
+                           title='This setting controls when the "Thoughts block header" will be injected in Chat Completion mode. It has no effect in Text Completion mode, where the header is always injected'>
+                        Header injection mode (for Chat Completion):
+                    </label>
+                    <select id="stepthink_thoughts_block_header_injection_mode" class="text_pole widthNatural">
+                        <option value="always">Always</option>
+                        <option value="groups">Only Group chats</option>
+                        <option value="never">Never</option>
+                    </select>
+                </div>
+
                 <div class="flex-container marginTopBot5 stepthink_mode_embedded">
                     <label for="stepthink_thoughts_block_header"
-                           title="This string will be used as a header for the thoughts block, it will be also used as a beginning of the thoughts injection">
+                           title="By default, this string will be used as a header for the thoughts block. It will replace the macro {{header}}">
                         Thoughts block header:
                     </label>
                     <input type="text" id="stepthink_thoughts_block_header" class="text_pole textarea_compact"/>
@@ -153,8 +178,18 @@
 
                 <div class="flex-container marginTopBot5 stepthink_mode_embedded">
                     <div class="flex-container justifySpaceBetween alignItemsCenter flex1">
+                        <label for="stepthink_general_injection_template"
+                               title="This template will be rendered and passed in the resulting prompt. Additional macros: {{header}}, {{thoughts)}}">
+                            General thoughts injection template:
+                        </label>
+                        <textarea id="stepthink_general_injection_template" class="text_pole textarea_compact" rows="3"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1">
                         <label for="stepthink_thought_injection_template"
-                               title="This template will be rendered and passed in the resulting prompt. Additional macros: {{thought}}, {{prompt_name}}, {{lowercase(prompt_name)}}">
+                               title="This template will replace the {{thoughts}} macro in the general template, rendering each thought separated by the specified separator. Additional macros: {{thought}}, {{prompt_name}}, {{lowercase(prompt_name)}}">
                             Thought injection template:
                         </label>
                         <div id="stepthink_restore_thought_injection_template" class="menu_button margin0" title="Restore default thought injection template">Default</div>
@@ -237,17 +272,6 @@
                     </div>
                 </div>
                 <!-- separated thoughts -->
-
-                <div class="flex-container marginTopBot5">
-                    <div class="flex-container justifySpaceBetween alignItemsCenter flex1"
-                         title="Often, there are special symbols and other shiza in the generation output; it will be removed by the regexp">
-                        <label for="stepthink_regexp_to_sanitize">
-                            Regexp to sanitize thoughts:
-                        </label>
-                        <div id="stepthink_restore_regexp_to_sanitize" class="menu_button margin0" title="Restore default regexp">Default</div>
-                        <input type="text" id="stepthink_regexp_to_sanitize" class="text_pole textarea_compact"/>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
