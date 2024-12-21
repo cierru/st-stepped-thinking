@@ -491,7 +491,7 @@ function onCharacterSettingReady(shortName, setting) {
             renderThinkingPromptAt(
                 prompt.id,
                 list,
-                settings.thinking_prompts,
+                setting.thinking_prompts,
                 shortName,
             );
         });
