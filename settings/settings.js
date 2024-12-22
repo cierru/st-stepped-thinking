@@ -1,5 +1,11 @@
 import { extensionName } from '../index.js';
-import { event_types, eventSource, saveSettings, saveSettingsDebounced } from '../../../../../script.js';
+import {
+    event_types,
+    eventSource,
+    extension_prompt_roles,
+    saveSettings,
+    saveSettingsDebounced,
+} from '../../../../../script.js';
 import { select2ChoiceClickSubscribe } from '../../../../utils.js';
 import { getCurrentCharacterSettings } from '../thinking/engine.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../../extensions.js';
@@ -74,6 +80,13 @@ function migrateSettingsV2(settings) {
 
 // settings - common
 
+export const thoughtPrefixInjectionModes = {
+    ALWAYS: 'always',
+    FROM_INSTRUCT: 'from_instruct',
+    GROUPS: 'groups',
+    NEVER: 'never',
+};
+
 const defaultCommonSettings = {
     'is_shutdown': false,
     'is_enabled': true,
@@ -101,9 +114,9 @@ const defaultCommonSettings = {
     },
 
     // embedded
-    'sending_thoughts_role': 0,
+    'sending_thoughts_role': extension_prompt_roles.SYSTEM,
     'thoughts_block_title': '{{char}}\'s Thoughts',
-    'thoughts_prefix_injection_mode': 'groups',
+    'thoughts_prefix_injection_mode': thoughtPrefixInjectionModes.FROM_INSTRUCT,
     'thoughts_injection_prefix': '{{char}}\'s Thoughts: ',
     'general_injection_template': '{{prefix}}{{thoughts}}',
     'thought_injection_template': '<{{prompt_name.toLowerCase()}}>{{thought}}</{{prompt_name.toLowerCase()}}>',

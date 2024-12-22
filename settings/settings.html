@@ -166,12 +166,13 @@
 
                 <div class="flex-container alignItemsCenter">
                     <label for="stepthink_thoughts_prefix_injection_mode"
-                           title='This setting controls when the "Thoughts injection prefix" will be injected in Chat Completion mode. It has no effect in Text Completion mode, where the prefix is always injected'>
-                        Prefix injection mode (for Chat Completion):
+                           title='This setting controls when the "Thoughts injection prefix" will be injected. You might want to disable injecting prefixes for Instruct or Chat Completions modes. If it is "Import from instruct", but the instruct mode is disabled, then it will be considered as "Always"'>
+                        Prefix injection mode:
                     </label>
                     <select id="stepthink_thoughts_prefix_injection_mode" class="text_pole widthNatural">
                         <option value="always">Always</option>
                         <option value="groups">Only Group chats</option>
+                        <option value="from_instruct">Import from instruct</option>
                         <option value="never">Never</option>
                     </select>
                 </div>

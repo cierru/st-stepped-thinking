@@ -162,7 +162,7 @@ export function registerGenerationEventListeners() {
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, prepareGenerationPrompt);
 
     eventSource.on(event_types.MESSAGE_RECEIVED, saveLastThoughts);
-    eventSource.on(event_types.MESSAGE_DELETED, renderThoughts);
+    eventSource.on(event_types.MESSAGE_DELETED, renderAndHideThoughts);
     eventSource.on(event_types.CHAT_CHANGED, renderInitialThoughts);
     $(document).on('mouseup touchend', '#show_more_messages', renderThoughts);
     $(document).on('click', '.mes_hide', hideThoughts);
@@ -242,6 +242,14 @@ async function renderInitialThoughts() {
  */
 async function renderThoughts() {
     await eventSource.emit(thinkingEvents.ON_RENDER, new OnRenderThoughtsEvent(false));
+}
+
+/**
+ * @return {Promise<void>}
+ */
+async function renderAndHideThoughts() {
+    await renderThoughts();
+    await hideThoughts();
 }
 
 /**

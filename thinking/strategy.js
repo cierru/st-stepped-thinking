@@ -1,7 +1,9 @@
 import {
     addOneMessage,
     event_types,
-    eventSource, extension_prompt_roles, extension_prompt_types,
+    eventSource,
+    extension_prompt_roles,
+    extension_prompt_types,
     extension_prompts,
     extractMessageBias,
     removeMacros,
@@ -12,11 +14,13 @@ import {
 } from '../../../../../script.js';
 import { getCurrentCharacterSettings, thinkingEvents } from './engine.js';
 import { getContext } from '../../../../extensions.js';
-import { settings } from '../settings/settings.js';
+import { settings, thoughtPrefixInjectionModes } from '../settings/settings.js';
 import { hideChatMessageRange } from '../../../../chats.js';
 import { getMessageTimeStamp } from '../../../../RossAscends-mods.js';
 import { extensionName } from '../index.js';
 import { uuidv4 } from '../../../../utils.js';
+import { power_user } from '../../../../power-user.js';
+import { names_behavior_types } from '../../../../instruct-mode.js';
 
 /**
  * @typedef {object} ThoughtsStrategy
@@ -609,25 +613,40 @@ class EmbeddedThoughtsPromptTemplate {
      */
     #renderPrefix() {
         const context = getContext();
-        const isChatCompletion = (mode) => mode === 'openai';
 
-        if (!isChatCompletion(context.mainApi)) {
-            return settings.thoughts_injection_prefix;
+        let mode = settings.thoughts_prefix_injection_mode;
+        if (mode === thoughtPrefixInjectionModes.FROM_INSTRUCT) {
+            mode = this.#importPrefixModeFromInstruct();
         }
 
         if (context.groupId) {
-            if (settings.thoughts_prefix_injection_mode !== 'never') {
+            if (mode !== thoughtPrefixInjectionModes.NEVER) {
                 return settings.thoughts_injection_prefix;
             }
 
             return '';
         }
 
-        if (settings.thoughts_prefix_injection_mode === 'always') {
+        if (mode === thoughtPrefixInjectionModes.ALWAYS) {
             return settings.thoughts_injection_prefix;
         }
 
         return '';
+    }
+
+    /**
+     * @return {string}
+     */
+    #importPrefixModeFromInstruct() {
+        if (power_user.instruct.enabled) {
+            if (settings.sending_thoughts_role === extension_prompt_roles.SYSTEM) {
+                return thoughtPrefixInjectionModes.ALWAYS;
+            }
+
+            return thoughtPrefixInjectionModes.NEVER;
+        }
+
+        return thoughtPrefixInjectionModes.ALWAYS;
     }
 }
 
@@ -800,6 +819,19 @@ class EmbeddedThoughtsUI {
         }
         detailsBlock.classList.add('thought_details');
 
+        const summaryBlock = this.#createThoughtsSummaryBlock(title);
+
+        detailsBlock.append(summaryBlock);
+        thoughtsBlock.append(detailsBlock);
+
+        return thoughtsBlock;
+    }
+
+    /**
+     * @param {string} title
+     * @return {HTMLElement}
+     */
+    #createThoughtsSummaryBlock(title) {
         const summaryBlock = document.createElement('summary');
         summaryBlock.classList.add('thought_summary');
 
@@ -814,22 +846,19 @@ class EmbeddedThoughtsUI {
         summaryTitle.innerHTML += '<i class="mes_ghost fa-solid fa-ghost" title="These thoughts won\'t be included in the prompt" style="display: none"></i>';
 
         const summaryButtonContainer = document.createElement('div');
-        summaryButtonContainer.classList.add('thought_summary_buttons');
-
-        const regenerateButton = document.createElement('div');
-        regenerateButton.classList.add('mes_button', 'fa-solid', 'fa-rotate', 'interactable');
+        summaryButtonContainer.classList.add('thought_control_buttons');
 
         const deleteButton = document.createElement('div');
         deleteButton.classList.add('mes_button', 'fa-solid', 'fa-trash-can', 'interactable');
 
-        summaryButtonContainer.append(regenerateButton, deleteButton);
+        const regenerateButton = document.createElement('div');
+        regenerateButton.classList.add('mes_button', 'fa-solid', 'fa-rotate', 'interactable');
+
+        summaryButtonContainer.append(deleteButton, regenerateButton);
         summaryContainer.append(summaryTitle, summaryButtonContainer);
         summaryBlock.append(summaryContainer);
 
-        detailsBlock.append(summaryBlock);
-        thoughtsBlock.append(detailsBlock);
-
-        return thoughtsBlock;
+        return summaryBlock;
     }
 
     /**
@@ -842,10 +871,7 @@ class EmbeddedThoughtsUI {
         const detailsBlock = thoughtsBlock.querySelector('.thought_details');
 
         const thoughtContainer = document.createElement('div');
-
-        const thoughtName = document.createElement('div');
-        thoughtName.classList.add('generated_thought_name');
-        thoughtName.innerHTML = thought.thinkingPrompt.name;
+        const thoughtNameContainer = this.#createThoughtsNameBlock(thought);
 
         const thoughtBlock = document.createElement('div');
         thoughtBlock.setAttribute('id', `generated_thought--${thought.id}`);
@@ -854,9 +880,35 @@ class EmbeddedThoughtsUI {
 
         thoughtBlock.innerHTML = context.messageFormatting(thought.thought, '', false, false, -1);
 
-        thoughtContainer.append(thoughtName, thoughtBlock);
+        thoughtContainer.append(thoughtNameContainer, thoughtBlock);
 
         detailsBlock.append(thoughtContainer);
+    }
+
+    /**
+     * @param {Thought} thought
+     * @return {HTMLDivElement}
+     */
+    #createThoughtsNameBlock(thought) {
+        const thoughtNameContainer = document.createElement('div');
+        thoughtNameContainer.classList.add('generated_thought_name', 'flex-container', 'justifySpaceBetween', 'flexFlowRow');
+
+        const thoughtName = document.createElement('div');
+        thoughtName.innerHTML = thought.thinkingPrompt.name;
+
+        const thoughtNameButtonsContainer = document.createElement('div');
+        thoughtNameButtonsContainer.classList.add('thought_control_buttons');
+
+        const editButton = document.createElement('div');
+        editButton.classList.add('mes_button', 'fa-solid', 'fa-pencil', 'interactable');
+
+        const regenerateButton = document.createElement('div');
+        regenerateButton.classList.add('mes_button', 'fa-solid', 'fa-rotate', 'interactable');
+
+        thoughtNameButtonsContainer.append(editButton, regenerateButton);
+        thoughtNameContainer.append(thoughtName, thoughtNameButtonsContainer);
+
+        return thoughtNameContainer;
     }
 
     /**
