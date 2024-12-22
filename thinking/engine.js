@@ -4,6 +4,7 @@ import {
     eventSource,
     extractMessageBias,
     sendMessageAsUser,
+    substituteParams,
 } from '../../../../../script.js';
 import { generationCaptured, releaseGeneration } from '../interconnection.js';
 import { settings } from '../settings/settings.js';
@@ -72,17 +73,17 @@ export class OnPutThoughtsEvent extends ThinkingEvent {
     /**
      * @var {string}
      */
-    #promptName;
-    /**
-     * @var {string}
-     */
     #thought;
+    /**
+     * @var {ThinkingPrompt}
+     */
+    #thinkingPrompt;
 
-    constructor(coordinates, promptName, thought) {
+    constructor(coordinates, thought, thinkingPrompt) {
         super();
         this.#coordinates = coordinates;
-        this.#promptName = promptName;
         this.#thought = thought;
+        this.#thinkingPrompt = thinkingPrompt;
     }
 
     get thoughtsMessageId() {
@@ -93,8 +94,8 @@ export class OnPutThoughtsEvent extends ThinkingEvent {
         return this.#coordinates.thoughtsMetadataId;
     }
 
-    get promptName() {
-        return this.#promptName;
+    get thinkingPrompt() {
+        return this.#thinkingPrompt;
     }
 
     get thought() {
@@ -269,12 +270,19 @@ async function prepareGenerationPrompt() {
 
 /**
  * @param {ThoughtsCoordinates} coordinates
- * @param {string} name
  * @param {string} thought
+ * @param {ThinkingPrompt} thinkingPrompt
  * @return {Promise<void>}
  */
-async function putCharactersThoughts(coordinates, name, thought) {
-    await eventSource.emit(thinkingEvents.ON_PUT, new OnPutThoughtsEvent(coordinates, name, thought));
+async function putCharactersThoughts(coordinates, thought, thinkingPrompt) {
+    const thinkingPromptSubstituted = {
+        ...thinkingPrompt,
+        ...{
+            name: substituteParams(thinkingPrompt.name),
+            prompt: substituteParams(thinkingPrompt.prompt),
+        }
+    };
+    await eventSource.emit(thinkingEvents.ON_PUT, new OnPutThoughtsEvent(coordinates, thought, thinkingPromptSubstituted));
 }
 
 /**
@@ -419,7 +427,7 @@ async function generateThoughts(targetPromptIds = null) {
     for (let i = 0; i < prompts.length; i++) {
         if (prompts[i]?.prompt && isInTargetPrompts(prompts[i].id)) {
             const thought = await generateCharacterThought(prompts[i].prompt);
-            await putCharactersThoughts(coordinates, prompts[i].name, thought);
+            await putCharactersThoughts(coordinates, thought, prompts[i]);
 
             if (prompts[i + 1]?.prompt) {
                 await generationDelay();

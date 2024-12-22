@@ -317,12 +317,12 @@ class SeparatedThoughtsStrategy {
 /**
  * @typedef {object} Thought
  * @property {number} id
- * @property {string} prompt_name
  * @property {string} thought
+ * @property {ThinkingPrompt} thinkingPrompt
  */
 /**
  * @typedef {object} ThoughtsGeneration
- * @property {string} header
+ * @property {string} title
  * @property {boolean} is_hidden
  * @property {array<Thought>} thoughts
  */
@@ -367,16 +367,16 @@ class EmbeddedThoughtsStrategy {
 
         /** @type {ThoughtsGeneration} */
         context.chatMetadata.thought_generation = {
-            header: context.substituteParams(settings.thoughts_block_header),
+            title: context.substituteParams(settings.thoughts_block_title),
             is_hidden: false,
-            thoughts: []
+            thoughts: [],
         };
 
         this.#ui.purgeUnboundThoughts();
         this.#ui.insertThoughtsTemplateBlock(
             context.chat.length - 1,
             thoughtsMetadataId,
-            context.chatMetadata.thought_generation.header
+            context.chatMetadata.thought_generation.title
         );
 
         event.thoughtsMetadataId = thoughtsMetadataId;
@@ -392,15 +392,14 @@ class EmbeddedThoughtsStrategy {
         const context = getContext();
         const thoughtGeneration = context.chatMetadata.thought_generation;
 
-        const newThoughtsLength = thoughtGeneration.thoughts.push(
-            {
-                id: thoughtGeneration.thoughts.length,
-                prompt_name: event.promptName,
-                thought: event.thought,
-            },
-        );
+        const newThought =  {
+            id: thoughtGeneration.thoughts.length,
+            thought: event.thought,
+            thinkingPrompt: event.thinkingPrompt,
+        };
+        thoughtGeneration.thoughts.push(newThought);
 
-        this.#ui.addThoughtToBlock(event.thoughtsMetadataId, thoughtGeneration.thoughts[newThoughtsLength - 1].thought);
+        this.#ui.addThoughtToBlock(event.thoughtsMetadataId, newThought);
 
         scrollChatToBottom();
     }
@@ -578,11 +577,11 @@ class EmbeddedThoughtsPromptTemplate {
      * @return {string}
      */
     render() {
-        const header = this.#renderHeader();
+        const prefix = this.#renderPrefix();
         const thoughts = this.#renderThoughts();
 
         return settings.general_injection_template
-            .replaceAll('{{header}}', header)
+            .replaceAll('{{prefix}}', prefix)
             .replaceAll('{{thoughts}}', thoughts)
         ;
     }
@@ -597,8 +596,8 @@ class EmbeddedThoughtsPromptTemplate {
             (result, currentThought, index) => result
                 + settings.thought_injection_template
                     .replaceAll('{{thought}}', currentThought.thought)
-                    .replaceAll('{{prompt_name}}', currentThought.prompt_name)
-                    .replaceAll('{{lowercase(prompt_name)}}', currentThought.prompt_name.toLowerCase())
+                    .replaceAll('{{prompt_name}}', currentThought.thinkingPrompt.name)
+                    .replaceAll('{{prompt_name.toLowerCase()}}', currentThought.thinkingPrompt.name.toLowerCase())
                 + (index !== thoughtsLastIndex ? settings.thought_injection_separator : '')
             ,
             '');
@@ -608,24 +607,24 @@ class EmbeddedThoughtsPromptTemplate {
     /**
      * @return {string}
      */
-    #renderHeader() {
+    #renderPrefix() {
         const context = getContext();
         const isChatCompletion = (mode) => mode === 'openai';
 
         if (!isChatCompletion(context.mainApi)) {
-            return settings.thoughts_block_header;
+            return settings.thoughts_injection_prefix;
         }
 
         if (context.groupId) {
-            if (settings.thoughts_block_header_injection_mode !== 'never') {
-                return settings.thoughts_block_header;
+            if (settings.thoughts_prefix_injection_mode !== 'never') {
+                return settings.thoughts_injection_prefix;
             }
 
             return '';
         }
 
-        if (settings.thoughts_block_header_injection_mode === 'always') {
-            return settings.thoughts_block_header;
+        if (settings.thoughts_prefix_injection_mode === 'always') {
+            return settings.thoughts_injection_prefix;
         }
 
         return '';
@@ -649,12 +648,12 @@ class EmbeddedThoughtsUI {
     /**
      * @param {number} previousMessageId
      * @param {string} thoughtsId
-     * @param {string} header
+     * @param {string} title
      * @return {void}
      */
-    insertThoughtsTemplateBlock(previousMessageId, thoughtsId, header) {
+    insertThoughtsTemplateBlock(previousMessageId, thoughtsId, title) {
         const lastMessage = document.querySelector(`#chat .mes[mesid="${previousMessageId}"]`);
-        const thoughtsTemplate = this.#createThoughtsBlock(thoughtsId, header);
+        const thoughtsTemplate = this.#createThoughtsBlock(thoughtsId, title);
 
         lastMessage.classList.remove('last_mes');
         lastMessage.after(thoughtsTemplate);
@@ -662,12 +661,12 @@ class EmbeddedThoughtsUI {
 
     /**
      * @param {string} id
-     * @param {string} thought
+     * @param {Thought} thought
      * @return {void}
      */
     addThoughtToBlock(id, thought) {
         const thoughtsTemplate = this.#findThoughtsBlock(id);
-        thoughtsTemplate.innerHTML += thought;
+        this.#insertThoughtIntoBlockContent(thoughtsTemplate, thought);
     }
 
     /**
@@ -722,6 +721,7 @@ class EmbeddedThoughtsUI {
 
             const messageId = messageBlock.getAttribute('mesid');
             const message = context.chat[messageId];
+            /** @var {ThoughtsGeneration} message.character_thoughts */
             if (!message.character_thoughts) {
                 messageBlock.setAttribute('thoughts_rendered', 'true');
                 return;
@@ -729,11 +729,11 @@ class EmbeddedThoughtsUI {
 
             const thoughtsBlock = this.#createThoughtsBlock(
                 message.thoughts_id,
-                message.character_thoughts.header,
+                message.character_thoughts.title,
             );
             this.#renderHidingState(thoughtsBlock, message.character_thoughts.is_hidden);
             for (const thought of message.character_thoughts.thoughts) {
-                thoughtsBlock.innerHTML += thought.thought;
+                this.#insertThoughtIntoBlockContent(thoughtsBlock, thought);
             }
 
             messageBlock.before(thoughtsBlock);
@@ -786,19 +786,77 @@ class EmbeddedThoughtsUI {
 
     /**
      * @param {string} id
-     * @param {?string} content
+     * @param {?string} title
      * @return {HTMLDivElement}
      */
-    #createThoughtsBlock(id, content = null) {
+    #createThoughtsBlock(id, title = null) {
         const thoughtsBlock = document.createElement('div');
         this.#updateThoughtBlockId(thoughtsBlock, id);
-
         thoughtsBlock.classList.add('thoughts');
-        if (content !== null) {
-            thoughtsBlock.innerHTML = content;
+
+        const detailsBlock = document.createElement('details');
+        if (settings.is_thoughts_spoiler_open) {
+            detailsBlock.open = settings.is_thoughts_spoiler_open;
         }
+        detailsBlock.classList.add('thought_details');
+
+        const summaryBlock = document.createElement('summary');
+        summaryBlock.classList.add('thought_summary');
+
+        const summaryContainer = document.createElement('div');
+        summaryContainer.classList.add('thought_summary_container');
+
+        const summaryTitle = document.createElement('div');
+        summaryTitle.classList.add('flex1');
+        if (title !== null) {
+            summaryTitle.innerHTML = `<b>${title}</b>&nbsp;`;
+        }
+        summaryTitle.innerHTML += '<i class="mes_ghost fa-solid fa-ghost" title="These thoughts won\'t be included in the prompt" style="display: none"></i>';
+
+        const summaryButtonContainer = document.createElement('div');
+        summaryButtonContainer.classList.add('thought_summary_buttons');
+
+        const regenerateButton = document.createElement('div');
+        regenerateButton.classList.add('mes_button', 'fa-solid', 'fa-rotate', 'interactable');
+
+        const deleteButton = document.createElement('div');
+        deleteButton.classList.add('mes_button', 'fa-solid', 'fa-trash-can', 'interactable');
+
+        summaryButtonContainer.append(regenerateButton, deleteButton);
+        summaryContainer.append(summaryTitle, summaryButtonContainer);
+        summaryBlock.append(summaryContainer);
+
+        detailsBlock.append(summaryBlock);
+        thoughtsBlock.append(detailsBlock);
 
         return thoughtsBlock;
+    }
+
+    /**
+     * @param {HTMLDivElement} thoughtsBlock
+     * @param {Thought} thought
+     * @return {void}
+     */
+    #insertThoughtIntoBlockContent(thoughtsBlock, thought) {
+        const context = getContext();
+        const detailsBlock = thoughtsBlock.querySelector('.thought_details');
+
+        const thoughtContainer = document.createElement('div');
+
+        const thoughtName = document.createElement('div');
+        thoughtName.classList.add('generated_thought_name');
+        thoughtName.innerHTML = thought.thinkingPrompt.name;
+
+        const thoughtBlock = document.createElement('div');
+        thoughtBlock.setAttribute('id', `generated_thought--${thought.id}`);
+        thoughtBlock.setAttribute('generated_thought_id', String(thought.id));
+        thoughtBlock.classList.add('mes_text', 'generated_thought');
+
+        thoughtBlock.innerHTML = context.messageFormatting(thought.thought, '', false, false, -1);
+
+        thoughtContainer.append(thoughtName, thoughtBlock);
+
+        detailsBlock.append(thoughtContainer);
     }
 
     /**
@@ -830,10 +888,12 @@ class EmbeddedThoughtsUI {
     }
 
     #renderHidingState(thoughtsBlock, isHidden) {
+        const ghostIcon = thoughtsBlock.querySelector('.thought_summary .mes_ghost');
+
         if (isHidden) {
-            thoughtsBlock.innerHTML = '<i class="mes_ghost fa-solid fa-ghost"></i>' + thoughtsBlock.innerHTML;
+            ghostIcon.style.display = '';
         } else {
-            thoughtsBlock.innerHTML = thoughtsBlock.innerHTML.replace('<i class="mes_ghost fa-solid fa-ghost"></i>', '');
+            ghostIcon.style.display = 'none';
         }
     }
 

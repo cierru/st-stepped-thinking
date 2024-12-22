@@ -5,17 +5,51 @@
 .thoughts {
     display: flex;
     align-items: flex-start;
-    padding: 10px 10px 0 10px;
+    padding: 10px;
     margin-top: 0;
     width: 100%;
     color: var(--SmartThemeBodyColor);
     position: relative;
 
-    /*padding: 10px;*/
     border-radius: 10px;
-    background-color: var(--SmartThemeBlurTintColor);
+    background-color: var(--SmartThemeBotMesBlurTintColor);
     margin-bottom: 0;
     border: 1px solid var(--SmartThemeBorderColor);
+}
+
+.thought_details {
+    width: 100%;
+}
+
+.thought_summary_container {
+    display: inline-flex;
+    width: calc(100% - 1.1em);
+}
+
+.thought_summary_buttons {
+    display: inline-flex;
+    gap: 4px;
+}
+
+.generated_thought_name {
+    font-weight: 600;
+    margin: 10px 5px 0 5px;
+    padding: 5px 10px 5px 10px;
+    /*background-color: var(--SmartThemeChatTintColor);*/
+    /*background-color: var(--SmartThemeBorderColor);*/
+    border-left: 3px solid var(--SmartThemeBorderColor);
+}
+
+.generated_thought {
+    margin: 0 5px 5px 5px;
+    padding: 5px 10px 5px 10px;
+    background-color: var(--SmartThemeShadowColor);
+    border-left: 3px solid var(--SmartThemeBorderColor);
+}
+
+.generated_thought q:before,
+.generated_thought q:after {
+    content: '';
 }
 
 .thoughts i {

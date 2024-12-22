@@ -156,12 +156,20 @@
                 <hr/>
 
                 <!-- embedded thoughts -->
-                <div class="flex-container alignItemsCenter">
-                    <label for="stepthink_thoughts_block_header_injection_mode"
-                           title='This setting controls when the "Thoughts block header" will be injected in Chat Completion mode. It has no effect in Text Completion mode, where the header is always injected'>
-                        Header injection mode (for Chat Completion):
+                <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                    <label for="stepthink_thoughts_block_title"
+                           title="This string will be used as a header for the thoughts block. It won't be sent in the prompt">
+                        Thoughts UI block title:
                     </label>
-                    <select id="stepthink_thoughts_block_header_injection_mode" class="text_pole widthNatural">
+                    <input type="text" id="stepthink_thoughts_block_title" class="text_pole textarea_compact"/>
+                </div>
+
+                <div class="flex-container alignItemsCenter">
+                    <label for="stepthink_thoughts_prefix_injection_mode"
+                           title='This setting controls when the "Thoughts injection prefix" will be injected in Chat Completion mode. It has no effect in Text Completion mode, where the prefix is always injected'>
+                        Prefix injection mode (for Chat Completion):
+                    </label>
+                    <select id="stepthink_thoughts_prefix_injection_mode" class="text_pole widthNatural">
                         <option value="always">Always</option>
                         <option value="groups">Only Group chats</option>
                         <option value="never">Never</option>
@@ -169,17 +177,17 @@
                 </div>
 
                 <div class="flex-container marginTopBot5 stepthink_mode_embedded">
-                    <label for="stepthink_thoughts_block_header"
-                           title="By default, this string will be used as a header for the thoughts block. It will replace the macro {{header}}">
-                        Thoughts block header:
+                    <label for="stepthink_thoughts_injection_prefix"
+                           title="This string will replace the macro {{prefix}} if it is allowed by the prefix injection mode">
+                        Thoughts injection prefix:
                     </label>
-                    <input type="text" id="stepthink_thoughts_block_header" class="text_pole textarea_compact"/>
+                    <input type="text" id="stepthink_thoughts_injection_prefix" class="text_pole textarea_compact"/>
                 </div>
 
                 <div class="flex-container marginTopBot5 stepthink_mode_embedded">
                     <div class="flex-container justifySpaceBetween alignItemsCenter flex1">
                         <label for="stepthink_general_injection_template"
-                               title="This template will be rendered and passed in the resulting prompt. Additional macros: {{header}}, {{thoughts)}}">
+                               title="This template will be rendered and passed in the resulting prompt. Additional macros: {{prefix}}, {{thoughts)}}">
                             General thoughts injection template:
                         </label>
                         <textarea id="stepthink_general_injection_template" class="text_pole textarea_compact" rows="3"></textarea>
@@ -189,7 +197,7 @@
                 <div class="flex-container marginTopBot5 stepthink_mode_embedded">
                     <div class="flex-container justifySpaceBetween alignItemsCenter flex1">
                         <label for="stepthink_thought_injection_template"
-                               title="This template will replace the {{thoughts}} macro in the general template, rendering each thought separated by the specified separator. Additional macros: {{thought}}, {{prompt_name}}, {{lowercase(prompt_name)}}">
+                               title="This template will replace the {{thoughts}} macro in the general template, rendering each thought separated by the specified separator. Additional macros: {{thought}}, {{prompt_name}}, {{prompt_name.toLowerCase()}}">
                             Thought injection template:
                         </label>
                         <div id="stepthink_restore_thought_injection_template" class="menu_button margin0" title="Restore default thought injection template">Default</div>

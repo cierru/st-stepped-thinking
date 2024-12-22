@@ -102,10 +102,11 @@ const defaultCommonSettings = {
 
     // embedded
     'sending_thoughts_role': 0,
-    'thoughts_block_header_injection_mode': 'groups', // todo
-    'thoughts_block_header': '{{char}}\'s Thoughts: ', // todo
-    'general_injection_template': '{{header}}{{thoughts}}', // todo
-    'thought_injection_template': '<{{lowercase(prompt_name)}}>{{thought}}</{{lowercase(prompt_name)}}>',
+    'thoughts_block_title': '{{char}}\'s Thoughts',
+    'thoughts_prefix_injection_mode': 'groups',
+    'thoughts_injection_prefix': '{{char}}\'s Thoughts: ',
+    'general_injection_template': '{{prefix}}{{thoughts}}',
+    'thought_injection_template': '<{{prompt_name.toLowerCase()}}>{{thought}}</{{prompt_name.toLowerCase()}}>',
     'thought_injection_separator': '\n',
 };
 
@@ -132,8 +133,9 @@ function loadCommonSettings() {
     $('#stepthink_is_thoughts_as_system').prop('checked', settings.is_thoughts_as_system).trigger('input');
 
     $(`#stepthink_sending_thoughts_role option[value="${settings.sending_thoughts_role}"]`).prop('selected', 'true');
-    $(`#stepthink_thoughts_block_header_injection_mode option[value="${settings.thoughts_block_header_injection_mode}"]`).prop('selected', 'true');
-    $('#stepthink_thoughts_block_header').val(settings.thoughts_block_header);
+    $('#stepthink_thoughts_block_title').val(settings.thoughts_block_title);
+    $(`#stepthink_thoughts_prefix_injection_mode option[value="${settings.thoughts_prefix_injection_mode}"]`).prop('selected', 'true');
+    $('#stepthink_thoughts_injection_prefix').val(settings.thoughts_injection_prefix);
     $('#stepthink_general_injection_template').val(settings.general_injection_template);
     $('#stepthink_thought_injection_template').val(settings.thought_injection_template);
     $('#stepthink_thought_injection_separator').val(settings.thought_injection_separator);
@@ -167,8 +169,9 @@ function registerCommonSettingListeners() {
     $('#stepthink_max_hiding_thoughts_lookup').on('input', onIntegerTextareaInput('max_hiding_thoughts_lookup'));
 
     $('#stepthink_sending_thoughts_role').on('input', onIntegerTextareaInput('sending_thoughts_role'));
-    $('#stepthink_thoughts_block_header_injection_mode').on('input', onTextareaInput('thoughts_block_header_injection_mode'));
-    $('#stepthink_thoughts_block_header').on('input', onTextareaInput('thoughts_block_header'));
+    $('#stepthink_thoughts_block_title').on('input', onTextareaInput('thoughts_block_title'));
+    $('#stepthink_thoughts_prefix_injection_mode').on('input', onTextareaInput('thoughts_prefix_injection_mode'));
+    $('#stepthink_thoughts_injection_prefix').on('input', onTextareaInput('thoughts_injection_prefix'));
     $('#stepthink_general_injection_template').on('input', onTextareaInput('general_injection_template'));
     $('#stepthink_thought_injection_template').on('input', onTextareaInput('thought_injection_template'));
     $('#stepthink_thought_injection_separator').on('input', onTextareaInput('thought_injection_separator'));
