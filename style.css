@@ -21,9 +21,21 @@
     width: 100%;
 }
 
+.thought_details > summary::marker,
+.thought_details > summary::-webkit-details-marker {
+    content: '▷';
+}
+
+/* crutch to fix the shitty unexpected size of the regular downwards triangle arrow in Chrome */
+.thought_details[open] > summary::marker,
+.thought_details[open] > summary::-webkit-details-marker {
+    content: '▽';
+}
+
 .thought_summary_container {
     display: inline-flex;
-    width: calc(100% - 1.1em);
+    margin-left: 5px;
+    width: calc(100% - 1.15em)
 }
 
 .thought_control_buttons {
@@ -33,7 +45,7 @@
 
 .generated_thought_name {
     font-weight: 600;
-    margin: 10px 3px 0 5px;
+    margin: 10px 0 0 5px;
     padding: 5px 0 5px 10px;
     /*background-color: var(--SmartThemeChatTintColor);*/
     /*background-color: var(--SmartThemeBorderColor);*/
@@ -41,7 +53,7 @@
 }
 
 .generated_thought {
-    margin: 0 5px 5px 5px;
+    margin: 0 0 5px 5px;
     padding: 5px 10px 5px 10px;
     background-color: var(--SmartThemeShadowColor);
     border-left: 3px solid var(--SmartThemeBorderColor);
