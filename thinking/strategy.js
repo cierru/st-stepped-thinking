@@ -639,6 +639,10 @@ class EmbeddedThoughtsPromptTemplate {
      */
     #importPrefixModeFromInstruct() {
         if (power_user.instruct.enabled) {
+            if (power_user.instruct.names_behavior === names_behavior_types.NONE) {
+                return thoughtPrefixInjectionModes.NEVER;
+            }
+
             if (settings.sending_thoughts_role === extension_prompt_roles.SYSTEM) {
                 return thoughtPrefixInjectionModes.ALWAYS;
             }
