@@ -324,6 +324,7 @@ class SeparatedThoughtsStrategy {
  * @property {string} thought
  * @property {ThinkingPrompt} thinkingPrompt
  */
+
 /**
  * @typedef {object} ThoughtsGeneration
  * @property {string} title
@@ -350,7 +351,7 @@ class EmbeddedThoughtsStrategy {
     static getInstance() {
         if (!EmbeddedThoughtsStrategy.#instance) {
             EmbeddedThoughtsStrategy.#instance = new EmbeddedThoughtsStrategy(
-                EmbeddedThoughtsUI.getInstance()
+                EmbeddedThoughtsUI.getInstance(),
             );
         }
 
@@ -359,6 +360,41 @@ class EmbeddedThoughtsStrategy {
 
     constructor(ui) {
         this.#ui = ui;
+    }
+
+    /**
+     * @param {string} thoughtsId
+     * @param {number} id
+     * @return {function(): void}
+     */
+    static onEditThought(thoughtsId, id) {
+        return function () {
+            const context = getContext();
+            const chatMessage = context.chat.find(message => message.thoughts_id === thoughtsId);
+            const valueToEdit = chatMessage.character_thoughts.thoughts.find(thought => thought.id === id).thought;
+
+            const thoughtsBlock = document.querySelector(`.thoughts[thoughts_id="${thoughtsId}"]`);
+            const thoughtBlock = thoughtsBlock.querySelector(`.generated_thought[generated_thought_id="${id}"]`);
+
+            const buttonsContainer = thoughtsBlock.querySelector(`.thought_control_buttons[generated_thought_id="${id}"]`);
+            for (const button of buttonsContainer.children) {
+                button.style.display = 'none';
+            }
+
+            const cancelButton = document.createElement('div');
+            cancelButton.classList.add('menu_button', 'fa-solid', 'fa-xmark', 'interactable', 'thought_edit_cancel_button');
+
+            const doneButton = document.createElement('div');
+            doneButton.classList.add('menu_button', 'fa-solid', 'fa-check', 'interactable', 'thought_edit_done_button');
+
+            buttonsContainer.append(doneButton, cancelButton);
+
+            const textArea = document.createElement('textarea');
+            textArea.value = valueToEdit;
+
+            thoughtBlock.innerHTML = '';
+            thoughtBlock.append(textArea);
+        }
     }
 
     /**
@@ -380,7 +416,7 @@ class EmbeddedThoughtsStrategy {
         this.#ui.insertThoughtsTemplateBlock(
             context.chat.length - 1,
             thoughtsMetadataId,
-            context.chatMetadata.thought_generation.title
+            context.chatMetadata.thought_generation.title,
         );
 
         event.thoughtsMetadataId = thoughtsMetadataId;
@@ -396,7 +432,7 @@ class EmbeddedThoughtsStrategy {
         const context = getContext();
         const thoughtGeneration = context.chatMetadata.thought_generation;
 
-        const newThought =  {
+        const newThought = {
             id: thoughtGeneration.thoughts.length,
             thought: event.thought,
             thinkingPrompt: event.thinkingPrompt,
@@ -505,7 +541,7 @@ class EmbeddedThoughtsStrategy {
                 context.chat[i],
                 revealedThoughtsCount[message.name],
                 currentCharacter.name,
-                isMindReaderCharacter
+                isMindReaderCharacter,
             );
         }
     }
@@ -525,7 +561,7 @@ class EmbeddedThoughtsStrategy {
             extension_prompt_types.IN_CHAT,
             depth,
             true,
-            settings.sending_thoughts_role
+            settings.sending_thoughts_role,
         );
     }
 
@@ -587,7 +623,7 @@ class EmbeddedThoughtsPromptTemplate {
         return settings.general_injection_template
             .replaceAll('{{prefix}}', prefix)
             .replaceAll('{{thoughts}}', thoughts)
-        ;
+            ;
     }
 
     /**
@@ -683,13 +719,13 @@ class EmbeddedThoughtsUI {
     }
 
     /**
-     * @param {string} id
+     * @param {string} thoughtsId
      * @param {Thought} thought
      * @return {void}
      */
-    addThoughtToBlock(id, thought) {
-        const thoughtsTemplate = this.#findThoughtsBlock(id);
-        this.#insertThoughtIntoBlockContent(thoughtsTemplate, thought);
+    addThoughtToBlock(thoughtsId, thought) {
+        const thoughtsTemplate = this.#findThoughtsBlock(thoughtsId);
+        this.#insertThoughtIntoBlockContent(thoughtsTemplate, thoughtsId, thought);
     }
 
     /**
@@ -756,7 +792,7 @@ class EmbeddedThoughtsUI {
             );
             this.#renderHidingState(thoughtsBlock, message.character_thoughts.is_hidden);
             for (const thought of message.character_thoughts.thoughts) {
-                this.#insertThoughtIntoBlockContent(thoughtsBlock, thought);
+                this.#insertThoughtIntoBlockContent(thoughtsBlock, message.thoughts_id, thought);
             }
 
             messageBlock.before(thoughtsBlock);
@@ -867,15 +903,16 @@ class EmbeddedThoughtsUI {
 
     /**
      * @param {HTMLDivElement} thoughtsBlock
+     * @param {string} thoughtsId
      * @param {Thought} thought
      * @return {void}
      */
-    #insertThoughtIntoBlockContent(thoughtsBlock, thought) {
+    #insertThoughtIntoBlockContent(thoughtsBlock, thoughtsId, thought) {
         const context = getContext();
         const detailsBlock = thoughtsBlock.querySelector('.thought_details');
 
         const thoughtContainer = document.createElement('div');
-        const thoughtNameContainer = this.#createThoughtsNameBlock(thought);
+        const thoughtNameContainer = this.#createThoughtsNameBlock(thoughtsId, thought);
 
         const thoughtBlock = document.createElement('div');
         thoughtBlock.setAttribute('id', `generated_thought--${thought.id}`);
@@ -890,10 +927,11 @@ class EmbeddedThoughtsUI {
     }
 
     /**
+     * @param {string} thoughtsId
      * @param {Thought} thought
      * @return {HTMLDivElement}
      */
-    #createThoughtsNameBlock(thought) {
+    #createThoughtsNameBlock(thoughtsId, thought) {
         const thoughtNameContainer = document.createElement('div');
         thoughtNameContainer.classList.add('generated_thought_name', 'flex-container', 'justifySpaceBetween', 'flexFlowRow');
 
@@ -902,9 +940,11 @@ class EmbeddedThoughtsUI {
 
         const thoughtNameButtonsContainer = document.createElement('div');
         thoughtNameButtonsContainer.classList.add('thought_control_buttons');
+        thoughtNameButtonsContainer.setAttribute('generated_thought_id', String(thought.id));
 
         const editButton = document.createElement('div');
         editButton.classList.add('mes_button', 'fa-solid', 'fa-pencil', 'interactable');
+        editButton.addEventListener('click', EmbeddedThoughtsStrategy.onEditThought(thoughtsId, thought.id));
 
         const regenerateButton = document.createElement('div');
         regenerateButton.classList.add('mes_button', 'fa-solid', 'fa-rotate', 'interactable');

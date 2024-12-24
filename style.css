@@ -43,6 +43,26 @@
     gap: 4px;
 }
 
+.thought_edit_cancel_button.menu_button {
+    background-color: var(--crimson70a);
+}
+
+.thought_edit_done_button.menu_button {
+    background-color: var(--okGreen70a);
+}
+
+.thought_control_buttons .menu_button {
+    opacity: 0.5;
+    aspect-ratio: 1 / 1;
+    height: 1.75rem;
+    margin: 0 0 0 2px;
+    padding: 0;
+}
+
+.thought_control_buttons .menu_button:hover {
+    opacity: 1;
+}
+
 .generated_thought_name {
     font-weight: 600;
     margin: 10px 0 0 5px;
