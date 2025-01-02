@@ -1,7 +1,6 @@
 import { getContext } from '../../../extensions.js';
 import {
     reloadCurrentChat,
-    saveChatConditional,
     setCharacterId,
     setCharacterName,
 } from '../../../../script.js';
@@ -109,7 +108,7 @@ async function deleteHiddenThoughts(_, name = '') {
         }
     }
 
-    await saveChatConditional();
+    await context.saveChat();
     await reloadCurrentChat();
 
     const deletionResultInfo = `Deleted ${messagesToDelete.length} thoughts`;

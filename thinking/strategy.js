@@ -7,7 +7,6 @@ import {
     extension_prompts,
     extractMessageBias,
     removeMacros,
-    saveChatConditional,
     scrollChatToBottom,
     setExtensionPrompt,
     updateMessageBlock,
@@ -32,13 +31,12 @@ import { names_behavior_types } from '../../../../instruct-mode.js';
  * @property {function(): void} makeIntermediateThoughtsOrphans
  * @property {function(): void} removeOrphanThoughts
  * @property {function(): Promise<void>} prepareGenerationPrompt
+ * @property {function(): Promise<void>} applyIntermediateEdits
  */
 /**
  * @type {ThoughtsStrategy}
  */
 let currentStrategy;
-
-export const LAST_THOUGHT_ID = 'last';
 
 export function switchToSeparatedThoughts() {
     currentStrategy = SeparatedThoughtsStrategy.getInstance();
@@ -81,11 +79,15 @@ export function registerThinkingListeners() {
         thinkingEvents.ON_PREPARE_GENERATION,
         preventDefaultDecorator(async () => currentStrategy.prepareGenerationPrompt()),
     );
+    eventSource.on(
+        thinkingEvents.ON_APPLY_EDITS,
+        preventDefaultDecorator(async () => currentStrategy.applyIntermediateEdits()),
+    );
 }
 
 /**
- * @param {function(ThinkingEvent): Promise|void} handler
- * @return {function(ThinkingEvent): void}
+ * @param {function(ThinkingEvent): Promise<void>} handler
+ * @return {function(ThinkingEvent): Promise<void>}
  */
 function preventDefaultDecorator(handler) {
     return async function (event) {
@@ -229,6 +231,13 @@ class SeparatedThoughtsStrategy {
     }
 
     /**
+     * @return {Promise<void>}
+     */
+    async applyIntermediateEdits() {
+        // Intermediate edits are handled by the default message editing mechanism
+    }
+
+    /**
      * @return {void}
      */
     makeIntermediateThoughtsOrphans() {
@@ -301,7 +310,7 @@ class SeparatedThoughtsStrategy {
         await eventSource.emit(event_types.MESSAGE_RECEIVED, (position));
         addOneMessage(message);
         await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, (position));
-        await saveChatConditional();
+        await context.saveChat();
 
         return position;
     }
@@ -319,6 +328,11 @@ class SeparatedThoughtsStrategy {
 }
 
 /**
+ * @typedef {object} ThoughtCoordinates
+ * @property {string} thoughts_id
+ * @property {number} thought_item_id
+ */
+/**
  * @typedef {object} Thought
  * @property {number} id
  * @property {string} thought
@@ -327,6 +341,7 @@ class SeparatedThoughtsStrategy {
 
 /**
  * @typedef {object} ThoughtsGeneration
+ * @property {string} thoughts_id
  * @property {string} title
  * @property {boolean} is_hidden
  * @property {array<Thought>} thoughts
@@ -335,7 +350,6 @@ class SeparatedThoughtsStrategy {
  * @implements {ThoughtsStrategy}
  */
 class EmbeddedThoughtsStrategy {
-    LAST_THOUGHT_ID = LAST_THOUGHT_ID;
     EXTENSION_PROMPT_PREFIX = 'STEPTHINK_THOUGHT_';
 
     /**
@@ -365,36 +379,50 @@ class EmbeddedThoughtsStrategy {
     /**
      * @param {string} thoughtsId
      * @param {number} id
+     * @return {function(): Promise<void>}
+     */
+    static onStartEditingThought(thoughtsId, id) {
+        return async function () {
+            const strategy = EmbeddedThoughtsStrategy.getInstance();
+            await strategy.applyIntermediateEdits();
+            strategy.#setCurrentThoughtEditing(thoughtsId, id);
+
+            EmbeddedThoughtsUI.getInstance().makeThoughtEditable(
+                thoughtsId,
+                strategy.findThought(thoughtsId, id)
+            );
+        };
+    }
+
+    /**
+     * @param {string} thoughtsId
+     * @param {number} id
+     * @return {function(): Promise<void>}
+     */
+    static onApplyEdits(thoughtsId, id) {
+        return async function () {
+            const strategy = EmbeddedThoughtsStrategy.getInstance();
+            strategy.#releaseThoughtEditing();
+
+            await strategy.#applyEdits(thoughtsId, id);
+        };
+    }
+
+    /**
+     * @param {string} thoughtsId
+     * @param {number} id
      * @return {function(): void}
      */
-    static onEditThought(thoughtsId, id) {
+    static onCancelEdits(thoughtsId, id) {
         return function () {
-            const context = getContext();
-            const chatMessage = context.chat.find(message => message.thoughts_id === thoughtsId);
-            const valueToEdit = chatMessage.character_thoughts.thoughts.find(thought => thought.id === id).thought;
+            const strategy = EmbeddedThoughtsStrategy.getInstance();
+            strategy.#releaseThoughtEditing();
 
-            const thoughtsBlock = document.querySelector(`.thoughts[thoughts_id="${thoughtsId}"]`);
-            const thoughtBlock = thoughtsBlock.querySelector(`.generated_thought[generated_thought_id="${id}"]`);
-
-            const buttonsContainer = thoughtsBlock.querySelector(`.thought_control_buttons[generated_thought_id="${id}"]`);
-            for (const button of buttonsContainer.children) {
-                button.style.display = 'none';
-            }
-
-            const cancelButton = document.createElement('div');
-            cancelButton.classList.add('menu_button', 'fa-solid', 'fa-xmark', 'interactable', 'thought_edit_cancel_button');
-
-            const doneButton = document.createElement('div');
-            doneButton.classList.add('menu_button', 'fa-solid', 'fa-check', 'interactable', 'thought_edit_done_button');
-
-            buttonsContainer.append(doneButton, cancelButton);
-
-            const textArea = document.createElement('textarea');
-            textArea.value = valueToEdit;
-
-            thoughtBlock.innerHTML = '';
-            thoughtBlock.append(textArea);
-        }
+            EmbeddedThoughtsUI.getInstance().renderThought(
+                thoughtsId,
+                strategy.findThought(thoughtsId, id)
+            );
+        };
     }
 
     /**
@@ -403,10 +431,10 @@ class EmbeddedThoughtsStrategy {
      */
     async sendCharacterTemplateMessage(event) {
         const context = getContext();
-        const thoughtsMetadataId = this.LAST_THOUGHT_ID;
 
         /** @type {ThoughtsGeneration} */
         context.chatMetadata.thought_generation = {
+            thoughts_id: uuidv4(),
             title: context.substituteParams(settings.thoughts_block_title),
             is_hidden: false,
             thoughts: [],
@@ -415,11 +443,11 @@ class EmbeddedThoughtsStrategy {
         this.#ui.purgeUnboundThoughts();
         this.#ui.insertThoughtsTemplateBlock(
             context.chat.length - 1,
-            thoughtsMetadataId,
+            context.chatMetadata.thought_generation.thoughts_id,
             context.chatMetadata.thought_generation.title,
         );
 
-        event.thoughtsMetadataId = thoughtsMetadataId;
+        event.thoughtsMetadataId = context.chatMetadata.thought_generation.thoughts_id;
 
         scrollChatToBottom();
     }
@@ -457,13 +485,12 @@ class EmbeddedThoughtsStrategy {
 
         const message = context.chat[event.messageId];
 
-        message.thoughts_id = uuidv4();
         message.character_thoughts = generatedThoughts;
-        this.#ui.bindThoughtsBlock(event.messageId, message.thoughts_id, event.thoughtsMetadataId);
+        this.#ui.bindThoughtsBlock(event.messageId, message.character_thoughts.thoughts_id);
 
         context.chatMetadata.thought_generation = null;
 
-        await saveChatConditional();
+        await context.saveChat();
     }
 
     /**
@@ -477,12 +504,13 @@ class EmbeddedThoughtsStrategy {
         for (let i = lastMessageId; i >= 0; i--) {
             const message = context.chat[i];
             if (message.character_thoughts && !message.character_thoughts.is_hidden) {
-                this.#injectThoughts(message.character_thoughts, message.thoughts_id, lastMessageId - i + 1);
+                this.#injectThoughts(message.character_thoughts, message.character_thoughts.thoughts_id, lastMessageId - i + 1);
             }
         }
 
-        if (context.chatMetadata.thought_generation) {
-            this.#injectThoughts(context.chatMetadata.thought_generation, this.LAST_THOUGHT_ID, 0);
+        const thoughtGeneration = context.chatMetadata.thought_generation;
+        if (thoughtGeneration) {
+            this.#injectThoughts(thoughtGeneration, thoughtGeneration.thoughts_id, 0);
         }
     }
 
@@ -490,10 +518,7 @@ class EmbeddedThoughtsStrategy {
      * @return {void}
      */
     makeIntermediateThoughtsOrphans() {
-        const context = getContext();
-
-        context.chatMetadata.thought_generation = null;
-        this.#ui.unbindOrphanThoughtsBlock(this.LAST_THOUGHT_ID);
+        this.#ui.unbindOrphanThoughtsBlock();
     }
 
 
@@ -547,6 +572,34 @@ class EmbeddedThoughtsStrategy {
     }
 
     /**
+     * @param {string} thoughtsId
+     * @param {number} generatedThoughtId
+     * @return {?Thought}
+     */
+    findThought(thoughtsId, generatedThoughtId) {
+        const context = getContext();
+        const chatMessage = context.chat.find(message => message.character_thoughts?.thoughts_id === thoughtsId);
+        if (!chatMessage) {
+            return null;
+        }
+
+        return chatMessage.character_thoughts.thoughts.find(thought => thought.id === generatedThoughtId);
+    }
+
+    /**
+     * @return {Promise<void>}
+     */
+    async applyIntermediateEdits() {
+        const currentThoughtEdits = this.#getCurrentThoughtEditing();
+        if (!currentThoughtEdits) {
+            return;
+        }
+
+        await this.#applyEdits(currentThoughtEdits.thoughts_id, currentThoughtEdits.thought_item_id);
+        this.#releaseThoughtEditing();
+    }
+
+    /**
      * @param {ThoughtsGeneration} generatedThoughts
      * @param {string} thoughtsId
      * @param {number} depth
@@ -596,10 +649,59 @@ class EmbeddedThoughtsStrategy {
             || (!isMindReaderCharacter && currentCharacterName !== message.name);
 
         if (previousHidingState !== characterThoughts.is_hidden) {
-            this.#ui.findThoughtAndRenderHidingState(message.thoughts_id, characterThoughts.is_hidden);
+            this.#ui.findThoughtAndRenderHidingState(message.character_thoughts.thoughts_id, characterThoughts.is_hidden);
         }
 
         return characterThoughts.is_hidden ? 0 : 1;
+    }
+
+    /**
+     * @param {string} thoughtsId
+     * @param {number} generatedThoughtId
+     * @return {Promise<void>}
+     */
+    async #applyEdits(thoughtsId, generatedThoughtId) {
+        const context = getContext();
+
+        const thought = this.findThought(thoughtsId, generatedThoughtId);
+        if (!thought) {
+            return;
+        }
+        const result = this.#ui.getThoughtText(thoughtsId, generatedThoughtId);
+        if (!result) {
+            return;
+        }
+
+        thought.thought = result;
+        this.#ui.renderThought(thoughtsId, thought);
+
+        await context.saveChat();
+    }
+
+    /**
+     * @param {string} thoughtsId
+     * @param {number} thoughtItemId
+     * @return {void}
+     */
+    #setCurrentThoughtEditing(thoughtsId, thoughtItemId) {
+        const context = getContext();
+        context.chatMetadata.thought_current_editing = { thoughts_id: thoughtsId, thought_item_id: thoughtItemId };
+    }
+
+    /**
+     * @return {ThoughtCoordinates|{}}
+     */
+    #getCurrentThoughtEditing() {
+        const context = getContext();
+        return context.chatMetadata.thought_current_editing;
+    }
+
+    /**
+     * @return {void}
+     */
+    #releaseThoughtEditing() {
+        const context = getContext();
+        context.chatMetadata.thought_current_editing = null;
     }
 }
 
@@ -712,7 +814,9 @@ class EmbeddedThoughtsUI {
      */
     insertThoughtsTemplateBlock(previousMessageId, thoughtsId, title) {
         const lastMessage = document.querySelector(`#chat .mes[mesid="${previousMessageId}"]`);
+
         const thoughtsTemplate = this.#createThoughtsBlock(thoughtsId, title);
+        thoughtsTemplate.classList.add('intermediate_thoughts');
 
         lastMessage.classList.remove('last_mes');
         lastMessage.after(thoughtsTemplate);
@@ -731,11 +835,10 @@ class EmbeddedThoughtsUI {
     /**
      * @param {int} messageToBindId
      * @param {string} thoughtsId
-     * @param {?string} previousThoughtsId
      */
-    bindThoughtsBlock(messageToBindId, thoughtsId, previousThoughtsId = null) {
-        const thoughtsBlock = this.#findThoughtsBlock(previousThoughtsId ?? thoughtsId);
-        this.#updateThoughtBlockId(thoughtsBlock, thoughtsId);
+    bindThoughtsBlock(messageToBindId, thoughtsId) {
+        const thoughtsBlock = this.#findThoughtsBlock(thoughtsId);
+        thoughtsBlock.classList.remove('intermediate_thoughts');
 
         const messageBlock = document.querySelector(`#chat .mes[mesid="${messageToBindId}"]`);
         this.#attachMessageToThoughts(messageBlock, thoughtsId);
@@ -787,25 +890,24 @@ class EmbeddedThoughtsUI {
             }
 
             const thoughtsBlock = this.#createThoughtsBlock(
-                message.thoughts_id,
+                message.character_thoughts.thoughts_id,
                 message.character_thoughts.title,
             );
             this.#renderHidingState(thoughtsBlock, message.character_thoughts.is_hidden);
             for (const thought of message.character_thoughts.thoughts) {
-                this.#insertThoughtIntoBlockContent(thoughtsBlock, message.thoughts_id, thought);
+                this.#insertThoughtIntoBlockContent(thoughtsBlock, message.character_thoughts.thoughts_id, thought);
             }
 
             messageBlock.before(thoughtsBlock);
-            this.#attachMessageToThoughts(messageBlock, message.thoughts_id);
+            this.#attachMessageToThoughts(messageBlock, message.character_thoughts.thoughts_id);
         });
     }
 
     /**
-     * @param {string} id
      * @return {void}
      */
-    unbindOrphanThoughtsBlock(id) {
-        const lastThoughtsBlock = this.#findThoughtsBlock(id);
+    unbindOrphanThoughtsBlock() {
+        const lastThoughtsBlock = document.querySelector('.intermediate_thoughts');
         if (!lastThoughtsBlock) {
             return;
         }
@@ -818,6 +920,7 @@ class EmbeddedThoughtsUI {
         }
 
         lastThoughtsBlock.classList.add('unbound_thoughts');
+        lastThoughtsBlock.classList.remove('intermediate_thoughts');
     }
 
     /**
@@ -825,6 +928,59 @@ class EmbeddedThoughtsUI {
      */
     purgeUnboundThoughts() {
         document.querySelector('.unbound_thoughts')?.remove();
+    }
+
+    /**
+     * @param {string} thoughtsId
+     * @param {Thought} thought
+     * @return {void}
+     */
+    makeThoughtEditable(thoughtsId, thought) {
+        const thoughtsBlock = this.#findThoughtsBlock(thoughtsId);
+        const thoughtBlock = this.#findGeneratedThoughtBlock(thoughtsBlock, thought.id);
+        const buttonsContainer = this.#findThoughtButtonsBlock(thoughtsBlock, thought.id);
+
+        this.#revealControlButtonsByClass(buttonsContainer, 'thought_edit_mode_button');
+
+        const textArea = document.createElement('textarea');
+        textArea.value = thought.thought;
+
+        thoughtBlock.innerHTML = '';
+        thoughtBlock.append(textArea);
+    }
+
+    /**
+     * @param {string} thoughtsId
+     * @param {Thought} thought
+     * @return {void}
+     */
+    renderThought(thoughtsId, thought) {
+        const thoughtsBlock = this.#findThoughtsBlock(thoughtsId);
+        const thoughtBlock = this.#findGeneratedThoughtBlock(thoughtsBlock, thought.id);
+        const buttonsContainer = this.#findThoughtButtonsBlock(thoughtsBlock, thought.id);
+
+        this.#revealControlButtonsByClass(buttonsContainer, 'thought_observe_mode_button');
+
+        this.#insertThoughtText(thoughtBlock, thought.thought);
+    }
+
+    /**
+     * @param {string} thoughtsId
+     * @param {number} generatedThoughtId
+     * @return {?string}
+     */
+    getThoughtText(thoughtsId, generatedThoughtId) {
+        const thoughtBlock = this.#findGeneratedThoughtBlock(
+            this.#findThoughtsBlock(thoughtsId),
+            generatedThoughtId,
+        );
+
+        const textArea = thoughtBlock.querySelector('textarea');
+        if (!textArea) {
+            return null;
+        }
+
+        return thoughtBlock.querySelector('textarea').value;
     }
 
     /**
@@ -919,11 +1075,27 @@ class EmbeddedThoughtsUI {
         thoughtBlock.setAttribute('generated_thought_id', String(thought.id));
         thoughtBlock.classList.add('mes_text', 'generated_thought');
 
-        thoughtBlock.innerHTML = context.messageFormatting(thought.thought, '', false, false, -1);
+        this.#insertThoughtText(thoughtBlock, thought.thought);
 
         thoughtContainer.append(thoughtNameContainer, thoughtBlock);
 
         detailsBlock.append(thoughtContainer);
+    }
+
+    /**
+     * @param {HTMLDivElement} thoughtBlock
+     * @param {string} thoughtText
+     * @return {void}
+     */
+    #insertThoughtText(thoughtBlock, thoughtText) {
+        const context = getContext();
+
+        // TODO test tags rendering more
+        if (settings.is_render_tags_in_thoughts) {
+            thoughtBlock.innerHTML = context.messageFormatting(thoughtText, '', false, false, -1);
+        } else {
+            thoughtBlock.innerText = thoughtText;
+        }
     }
 
     /**
@@ -943,13 +1115,23 @@ class EmbeddedThoughtsUI {
         thoughtNameButtonsContainer.setAttribute('generated_thought_id', String(thought.id));
 
         const editButton = document.createElement('div');
-        editButton.classList.add('mes_button', 'fa-solid', 'fa-pencil', 'interactable');
-        editButton.addEventListener('click', EmbeddedThoughtsStrategy.onEditThought(thoughtsId, thought.id));
+        editButton.classList.add('mes_button', 'fa-solid', 'fa-pencil', 'interactable', 'thought_observe_mode_button');
+        editButton.addEventListener('click', EmbeddedThoughtsStrategy.onStartEditingThought(thoughtsId, thought.id));
 
         const regenerateButton = document.createElement('div');
-        regenerateButton.classList.add('mes_button', 'fa-solid', 'fa-rotate', 'interactable');
+        regenerateButton.classList.add('mes_button', 'fa-solid', 'fa-rotate', 'interactable', 'thought_observe_mode_button');
 
-        thoughtNameButtonsContainer.append(editButton, regenerateButton);
+        const cancelButton = document.createElement('div');
+        cancelButton.classList.add('menu_button', 'fa-solid', 'fa-xmark', 'interactable', 'thought_edit_cancel_button', 'thought_edit_mode_button');
+        cancelButton.addEventListener('click', EmbeddedThoughtsStrategy.onCancelEdits(thoughtsId, thought.id));
+
+        const doneButton = document.createElement('div');
+        doneButton.classList.add('menu_button', 'fa-solid', 'fa-check', 'interactable', 'thought_edit_done_button', 'thought_edit_mode_button');
+        doneButton.addEventListener('click', EmbeddedThoughtsStrategy.onApplyEdits(thoughtsId, thought.id));
+
+        thoughtNameButtonsContainer.append(editButton, regenerateButton, doneButton, cancelButton);
+        this.#revealControlButtonsByClass(thoughtNameButtonsContainer, 'thought_observe_mode_button');
+
         thoughtNameContainer.append(thoughtName, thoughtNameButtonsContainer);
 
         return thoughtNameContainer;
@@ -974,6 +1156,24 @@ class EmbeddedThoughtsUI {
     }
 
     /**
+     * @param {HTMLDivElement} thoughtsBlock
+     * @param {number} generatedThoughtId
+     * @return {HTMLDivElement}
+     */
+    #findGeneratedThoughtBlock(thoughtsBlock, generatedThoughtId) {
+        return thoughtsBlock.querySelector(`.generated_thought[generated_thought_id="${generatedThoughtId}"]`);
+    }
+
+    /**
+     * @param {HTMLDivElement} thoughtsBlock
+     * @param {number} generatedThoughtId
+     * @return {HTMLDivElement}
+     */
+    #findThoughtButtonsBlock(thoughtsBlock, generatedThoughtId) {
+        return thoughtsBlock.querySelector(`.thought_control_buttons[generated_thought_id="${generatedThoughtId}"]`);
+    }
+
+    /**
      * @param {HTMLDivElement} messageBlock
      * @param {string} thoughtsId
      * @return {void}
@@ -990,6 +1190,21 @@ class EmbeddedThoughtsUI {
             ghostIcon.style.display = '';
         } else {
             ghostIcon.style.display = 'none';
+        }
+    }
+
+    /**
+     * @param {HTMLDivElement} buttonsContainer
+     * @param {string} classToReveal
+     * @return {void}
+     */
+    #revealControlButtonsByClass(buttonsContainer, classToReveal) {
+        for (const button of buttonsContainer.children) {
+            if (button.classList.contains(classToReveal)) {
+                button.style.display = '';
+            } else {
+                button.style.display = 'none';
+            }
         }
     }
 

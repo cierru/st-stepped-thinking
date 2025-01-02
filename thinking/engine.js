@@ -9,7 +9,6 @@ import {
 import { generationCaptured, releaseGeneration } from '../interconnection.js';
 import { settings } from '../settings/settings.js';
 import { is_group_generating } from '../../../../group-chats.js';
-import { LAST_THOUGHT_ID } from './strategy.js';
 
 let isThinking = false;
 let toastThinking, sendTextareaOriginalPlaceholder;
@@ -23,10 +22,11 @@ export const thinkingEvents = {
     ON_MAKE_ORPHANS: 'ON_MAKE_INTERMEDIATE_THOUGHTS_ORPHANS',
     ON_REMOVE_ORPHANS: 'ON_REMOVE_ORPHAN_THOUGHTS',
     ON_PREPARE_GENERATION: 'ON_PREPARE_GENERATION_THOUGHTS',
+    ON_APPLY_EDITS: 'ON_APPLY_INTERMEDIATE_EDITS',
 };
 
 /**
- * @typedef {object} ThoughtsCoordinates
+ * @typedef {object} ThoughtsBlockCoordinates
  * @property {?number} thoughtsMessageId
  * @property {?string} thoughtsMetadataId
  */
@@ -48,7 +48,7 @@ export class ThinkingEvent {
 
 export class OnSendThoughtsTemplateEvent extends ThinkingEvent {
     /**
-     * @var {ThoughtsCoordinates}
+     * @var {ThoughtsBlockCoordinates}
      */
     #coordinates = { thoughtsMessageId: null, thoughtsMetadataId: null };
 
@@ -67,7 +67,7 @@ export class OnSendThoughtsTemplateEvent extends ThinkingEvent {
 
 export class OnPutThoughtsEvent extends ThinkingEvent {
     /**
-     * @var {ThoughtsCoordinates}
+     * @var {ThoughtsBlockCoordinates}
      */
     #coordinates;
     /**
@@ -105,22 +105,13 @@ export class OnPutThoughtsEvent extends ThinkingEvent {
 
 export class OnSaveThoughtsEvent extends ThinkingEvent {
     /**
-     * @var {number|string}
-     */
-    #thoughtsMetadataId;
-    /**
      * @var {number}
      */
     #messageId;
 
-    constructor(thoughtsMetadataId, messageId) {
+    constructor(messageId) {
         super();
-        this.#thoughtsMetadataId = thoughtsMetadataId;
         this.#messageId = messageId;
-    }
-
-    get thoughtsMetadataId() {
-        return this.#thoughtsMetadataId;
     }
 
     get messageId() {
@@ -157,6 +148,7 @@ export function registerGenerationEventListeners() {
     eventSource.on(event_types.GENERATION_STOPPED, stopChatThinking);
     // todo remove afterwards
     eventSource.on(event_types.GENERATE_AFTER_COMBINE_PROMPTS, (event) => console.log('STDEBUG Final Prompt', event.prompt));
+    eventSource.on(event_types.GENERATION_STARTED, applyIntermediateEdits);
     eventSource.on(event_types.GENERATION_STARTED, removeOrphanThoughts);
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, runChatThinking);
     eventSource.on(event_types.GENERATION_AFTER_COMMANDS, prepareGenerationPrompt);
@@ -218,16 +210,7 @@ function isGenerationTypeAllowed(type) {
  * @return {Promise<void>}
  */
 async function saveLastThoughts() {
-    await saveThoughts(LAST_THOUGHT_ID, getContext().chat.length - 1);
-}
-
-/**
- * @param {number|string} thoughtsMetadataId
- * @param {number} messageId
- * @return {Promise<void>}
- */
-async function saveThoughts(thoughtsMetadataId, messageId) {
-    await eventSource.emit(thinkingEvents.ON_SAVE, new OnSaveThoughtsEvent(thoughtsMetadataId, messageId));
+    await eventSource.emit(thinkingEvents.ON_SAVE, new OnSaveThoughtsEvent(getContext().chat.length - 1));
 }
 
 /**
@@ -260,7 +243,7 @@ async function hideThoughts() {
 }
 
 /**
- * @return {Promise<ThoughtsCoordinates>}
+ * @return {Promise<ThoughtsBlockCoordinates>}
  */
 async function sendCharacterTemplateMessage() {
     const event = new OnSendThoughtsTemplateEvent();
@@ -277,7 +260,14 @@ async function prepareGenerationPrompt() {
 }
 
 /**
- * @param {ThoughtsCoordinates} coordinates
+ * @return {Promise<void>}
+ */
+async function applyIntermediateEdits() {
+    await eventSource.emit(thinkingEvents.ON_APPLY_EDITS, new ThinkingEvent());
+}
+
+/**
+ * @param {ThoughtsBlockCoordinates} coordinates
  * @param {string} thought
  * @param {ThinkingPrompt} thinkingPrompt
  * @return {Promise<void>}

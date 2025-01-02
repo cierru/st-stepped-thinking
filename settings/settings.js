@@ -114,6 +114,7 @@ const defaultCommonSettings = {
     },
 
     // embedded
+    'is_render_tags_in_thoughts': true,
     'sending_thoughts_role': extension_prompt_roles.SYSTEM,
     'thoughts_block_title': '{{char}}\'s Thoughts',
     'thoughts_prefix_injection_mode': thoughtPrefixInjectionModes.FROM_INSTRUCT,
@@ -145,6 +146,7 @@ function loadCommonSettings() {
     $('#stepthink_is_thinking_popups_enabled').prop('checked', settings.is_thinking_popups_enabled).trigger('input');
     $('#stepthink_is_thoughts_as_system').prop('checked', settings.is_thoughts_as_system).trigger('input');
 
+    $('#stepthink_is_render_tags_in_thoughts').prop('checked', settings.is_render_tags_in_thoughts).trigger('input');
     $(`#stepthink_sending_thoughts_role option[value="${settings.sending_thoughts_role}"]`).prop('selected', 'true');
     $('#stepthink_thoughts_block_title').val(settings.thoughts_block_title);
     $(`#stepthink_thoughts_prefix_injection_mode option[value="${settings.thoughts_prefix_injection_mode}"]`).prop('selected', 'true');
@@ -181,6 +183,7 @@ function registerCommonSettingListeners() {
     $('#stepthink_generation_delay').on('input', onGenerationDelayInput);
     $('#stepthink_max_hiding_thoughts_lookup').on('input', onIntegerTextareaInput('max_hiding_thoughts_lookup'));
 
+    $('#stepthink_is_render_tags_in_thoughts').on('input', onCheckboxInput('is_render_tags_in_thoughts'));
     $('#stepthink_sending_thoughts_role').on('input', onIntegerTextareaInput('sending_thoughts_role'));
     $('#stepthink_thoughts_block_title').on('input', onTextareaInput('thoughts_block_title'));
     $('#stepthink_thoughts_prefix_injection_mode').on('input', onTextareaInput('thoughts_prefix_injection_mode'));

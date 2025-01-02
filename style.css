@@ -88,6 +88,11 @@
     display: inline;
 }
 
+.intermediate_thoughts .thought_control_buttons,
+.unbound_thoughts .thought_control_buttons {
+    display: none;
+}
+
 .unbound_thoughts {
     background-color: rgba(255, 0, 0, 0.1);
     background-blend-mode: multiply;
