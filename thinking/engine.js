@@ -46,6 +46,22 @@ export class ThinkingEvent {
     }
 }
 
+export class OnHideThoughtsEvent extends ThinkingEvent {
+    /**
+     * @var {number}
+     */
+    #targetCharacterId;
+
+    constructor(targetCharacterId) {
+        super();
+        this.#targetCharacterId = targetCharacterId;
+    }
+
+    get targetCharacterId() {
+        return this.#targetCharacterId;
+    }
+}
+
 export class OnSendThoughtsTemplateEvent extends ThinkingEvent {
     /**
      * @var {ThoughtsBlockCoordinates}
@@ -239,7 +255,12 @@ async function renderAndHideThoughts() {
  * @return {Promise<void>}
  */
 async function hideThoughts() {
-    await eventSource.emit(thinkingEvents.ON_HIDE, new ThinkingEvent());
+    const characterId = Number(getContext().characterId);
+    if (!Number.isInteger(characterId)) {
+        return;
+    }
+
+    await eventSource.emit(thinkingEvents.ON_HIDE, new OnHideThoughtsEvent(characterId));
 }
 
 /**

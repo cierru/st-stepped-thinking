@@ -23,7 +23,7 @@ import { names_behavior_types } from '../../../../instruct-mode.js';
 
 /**
  * @typedef {object} ThoughtsStrategy
- * @property {function(): Promise<void>} hideThoughts
+ * @property {function(OnHideThoughtsEvent): Promise<void>} hideThoughts
  * @property {function(OnSendThoughtsTemplateEvent): Promise<void>} sendCharacterTemplateMessage
  * @property {function(OnPutThoughtsEvent): Promise<void>} putCharacterThoughts
  * @property {function(OnSaveThoughtsEvent): Promise<void>} saveCharacterThoughts
@@ -49,7 +49,7 @@ export function switchToEmbeddedThoughts() {
 export function registerThinkingListeners() {
     eventSource.on(
         thinkingEvents.ON_HIDE,
-        preventDefaultDecorator(async () => currentStrategy.hideThoughts()),
+        preventDefaultDecorator(async (event) => currentStrategy.hideThoughts(event)),
     );
     eventSource.on(
         thinkingEvents.ON_SEND_TEMPLATE,
@@ -120,13 +120,14 @@ class SeparatedThoughtsStrategy {
     }
 
     /**
+     * @param {OnHideThoughtsEvent} event
      * @return {Promise<void>}
      */
-    async hideThoughts() {
+    async hideThoughts(event) {
         const context = getContext();
         const maxThoughts = settings.max_thoughts_in_prompt;
 
-        const currentCharacter = context.characters[context.characterId];
+        const currentCharacter = context.characters[event.targetCharacterId];
         const characterSettings = getCurrentCharacterSettings();
 
         const isMindReaderCharacter = Boolean(characterSettings && characterSettings.is_mind_reader);
@@ -439,6 +440,7 @@ class EmbeddedThoughtsStrategy {
             is_hidden: false,
             thoughts: [],
         };
+        context.chatMetadata.thought_target_message_id = context.chat.length;
 
         this.#ui.purgeUnboundThoughts();
         this.#ui.insertThoughtsTemplateBlock(
@@ -489,6 +491,7 @@ class EmbeddedThoughtsStrategy {
         this.#ui.bindThoughtsBlock(event.messageId, message.character_thoughts.thoughts_id);
 
         context.chatMetadata.thought_generation = null;
+        context.chatMetadata.thought_target_message_id = null;
 
         await context.saveChat();
     }
@@ -518,6 +521,17 @@ class EmbeddedThoughtsStrategy {
      * @return {void}
      */
     makeIntermediateThoughtsOrphans() {
+        const context = getContext();
+
+        const targetMessageId = context.chatMetadata.thought_target_message_id;
+        if (!Number.isInteger(targetMessageId) || context.chat[targetMessageId]) {
+            context.chatMetadata.thought_target_message_id = null;
+            return;
+        }
+
+        context.chatMetadata.thought_generation = null;
+        context.chatMetadata.thought_target_message_id = null;
+
         this.#ui.unbindOrphanThoughtsBlock();
     }
 
@@ -546,12 +560,13 @@ class EmbeddedThoughtsStrategy {
     }
 
     /**
+     * @param {OnHideThoughtsEvent} event
      * @return {Promise<void>}
      */
-    async hideThoughts() {
+    async hideThoughts(event) {
         const context = getContext();
 
-        const currentCharacter = context.characters[context.characterId];
+        const currentCharacter = context.characters[event.targetCharacterId];
         const characterSettings = getCurrentCharacterSettings();
 
         const isMindReaderCharacter = Boolean(characterSettings && characterSettings.is_mind_reader);
@@ -912,15 +927,8 @@ class EmbeddedThoughtsUI {
             return;
         }
 
-        const siblingElement = this.#findClosestSibling(lastThoughtsBlock, 'mes', 'down');
-        if (siblingElement
-            && siblingElement.classList.contains('mes')
-            && siblingElement.getAttribute('thoughts_rendered') !== 'true') {
-            return;
-        }
-
-        lastThoughtsBlock.classList.add('unbound_thoughts');
         lastThoughtsBlock.classList.remove('intermediate_thoughts');
+        lastThoughtsBlock.classList.add('unbound_thoughts');
     }
 
     /**
@@ -1089,13 +1097,7 @@ class EmbeddedThoughtsUI {
      */
     #insertThoughtText(thoughtBlock, thoughtText) {
         const context = getContext();
-
-        // TODO test tags rendering more
-        if (settings.is_render_tags_in_thoughts) {
-            thoughtBlock.innerHTML = context.messageFormatting(thoughtText, '', false, false, -1);
-        } else {
-            thoughtBlock.innerText = thoughtText;
-        }
+        thoughtBlock.innerHTML = context.messageFormatting(thoughtText, '', false, false, -1);
     }
 
     /**
