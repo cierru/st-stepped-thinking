@@ -1072,10 +1072,12 @@ export class EmbeddedThoughtsGenerationPlan {
 
         const currentCharacterName = context.characters[this.getCharacterId()].name;
         const lastMessageId = context.chat.length - 1;
+        // On swipes the last message is excluded from the prompt but actually exists
+        const injectionOffset = generationType === 'swipe' ? 0 : 1;
         for (let i = lastMessageId, j = lastMessageId; i >= 0 && (lastMessageId - i < settings.max_hiding_thoughts_lookup); i--) {
             const message = context.chat[i];
             if (message.character_thoughts && !message.character_thoughts.is_hidden) {
-                await this._promptInjector.injectBound(message, lastMessageId - j + 1, currentCharacterName);
+                await this._promptInjector.injectBound(message, lastMessageId - j + injectionOffset, currentCharacterName);
             }
             if (!message.is_system) {
                 j--;

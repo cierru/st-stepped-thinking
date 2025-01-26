@@ -65,11 +65,14 @@ function handleUpgradingToV3Installations() {
             extension_settings[extensionName].mode = 'separated';
             saveSettingsDebounced();
         }
-        callGenericPopup(
-            '<b>Stepped Thinking v3 is out!</b><br/>Try the new "Embedded" mode, which you can select in the Stepped Thinking settings menu.'
-            + ' Just remember that it is mutually incompatible with the old "Separated" mode.',
-            POPUP_TYPE.TEXT
-        );
+
+        if (extension_settings[extensionName].mode !== 'embedded') {
+            callGenericPopup(
+                '<b>Stepped Thinking v3 is out!</b><br/>Try the new "Embedded" mode, which you can select in the Stepped Thinking settings menu.'
+                + ' Just remember that it is mutually incompatible with the old "Separated" mode.',
+                POPUP_TYPE.TEXT
+            );
+        }
     }
 }
 
