@@ -89,12 +89,8 @@ Settings` block.
 
 This command is designed to manually trigger the thought generation process. It accepts two optional arguments:
 
-1. `prompt_ids` – the comma-separated IDs of thinking prompts that will be used for generation. Currently, the only way
-   to extract the IDs is by looking through the `st-stepped-thinking` section in the `settings.json` file, which is
-   typically located at `SillyTavern\data\default-user`. The prompt IDs will be exposed in the extension settings
-   section in future updates.
+1. `prompt_ids` – the comma-separated IDs of thinking prompts that will be used for generation.
 
-   **Note:** The default IDs are `0` for thoughts and `1` for plans.
 2. The name of the character for whom the process will be launched, which is particularly useful for group chats.
 
 **Examples:**

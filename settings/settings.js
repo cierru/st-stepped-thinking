@@ -6,7 +6,7 @@ import {
     saveSettings,
     saveSettingsDebounced,
 } from '../../../../../script.js';
-import { select2ChoiceClickSubscribe } from '../../../../utils.js';
+import { getSortableDelay, select2ChoiceClickSubscribe } from '../../../../utils.js';
 import { getCharacterSettings, switchMode } from '../thinking/engine.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../../extensions.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
@@ -503,14 +503,6 @@ async function showCharacterSettingsPopup(characterName) {
 
     $(`#stepthink_is_thinking_enabled--${shortName}`).on('input', onCheckboxInput('is_thinking_enabled', setting));
     $(`#stepthink_is_mind_reader--${shortName}`).on('input', onCheckboxInput('is_mind_reader', setting));
-
-    $(`#stepthink_prompt_list_add--${shortName}`).on('click', ThinkingPromptList.onPromptItemAdd(
-        $(`#stepthink_prompt_list--${shortName}`),
-        new ThinkingPromptSettings(
-            setting.thinking_prompts,
-            shortName,
-        ),
-    ));
 }
 
 /**
@@ -520,19 +512,10 @@ async function showCharacterSettingsPopup(characterName) {
  */
 function onCharacterSettingReady(shortName, setting) {
     return function () {
-        const list = $(`#stepthink_prompt_list--${shortName}`);
+        ThinkingPromptList.create(setting.thinking_prompts, shortName).renderAll();
 
         $(`#stepthink_is_thinking_enabled--${shortName}`).prop('checked', setting.is_thinking_enabled);
         $(`#stepthink_is_mind_reader--${shortName}`).prop('checked', setting.is_mind_reader);
-
-        setting.thinking_prompts.forEach(prompt => {
-            renderThinkingPromptAt(
-                prompt.id,
-                list,
-                setting.thinking_prompts,
-                shortName,
-            );
-        });
     };
 }
 
@@ -666,25 +649,14 @@ const defaultThinkingPromptSettings = {
  * @return {void}
  */
 function loadThinkingPromptSettings() {
-    const list = $('#stepthink_prompt_list');
-
-    settings.thinking_prompts.forEach(prompt => {
-        renderThinkingPromptAt(
-            prompt.id,
-            list,
-            settings.thinking_prompts,
-        );
-    });
+    ThinkingPromptList.create(settings.thinking_prompts).renderAll();
 }
 
 /**
  * @return {void}
  */
 function registerThinkingPromptListeners() {
-    $('#stepthink_prompt_list_add').on('click', ThinkingPromptList.onPromptItemAdd(
-        $('#stepthink_prompt_list'),
-        new ThinkingPromptSettings(settings.thinking_prompts),
-    ));
+    // don't need so far, it's here to preserve the structure of each settings file
 }
 
 class ThinkingPromptSettings {
@@ -720,9 +692,7 @@ class ThinkingPromptSettings {
      * @return {number}
      */
     push(name, prompt, isEnabled) {
-        const promptsCount = this.#settings.length;
-        const id = promptsCount > 0 ? this.#settings[promptsCount - 1].id + 1 : 0;
-
+        const id = this.#getLowestFreeId();
         this.#settings.push({ id: id, name: name, prompt: prompt, is_enabled: isEnabled });
 
         return id;
@@ -774,6 +744,44 @@ class ThinkingPromptSettings {
     getSettingBy(id) {
         return this.#settings.find(prompt => prompt.id === id);
     }
+
+    /**
+     * @param {number[]} newOrderIds
+     * @return {void}
+     */
+    reorder(newOrderIds) {
+        let settingsIdsMap = new Map();
+        this.#settings.map(prompt => settingsIdsMap.set(prompt.id, prompt));
+
+        for (let i = 0; i < this.#settings.length; i++) {
+            this.#settings[i] = settingsIdsMap.get(newOrderIds[i]);
+        }
+    }
+
+    /**
+     * @return {Generator<ThinkingPrompt>}
+     */
+    *[Symbol.iterator]() {
+        for (const setting of this.#settings) {
+            yield setting;
+        }
+    }
+
+    /**
+     * @return {number}
+     */
+    #getLowestFreeId() {
+        const takenIds = this.#settings.map(prompt => prompt.id).sort();
+        let freeId = 0;
+        for (const takenId of takenIds) {
+            if (takenId !== freeId) {
+                break;
+            }
+            freeId++;
+        }
+
+        return freeId;
+    }
 }
 
 class ThinkingPromptList {
@@ -792,78 +800,118 @@ class ThinkingPromptList {
     }
 
     /**
-     * @param {JQuery<HTMLDivElement>|ParentNode} rootElement
-     * @param {ThinkingPromptSettings} promptSettings
-     * @return {(function(): void)}
+     * @param {ThinkingPrompt[]} promptSettings
+     * @param {?string} owner
+     * @return {ThinkingPromptList}
      */
-    static onPromptItemAdd(rootElement, promptSettings) {
-        const list = new ThinkingPromptList(rootElement, promptSettings);
+    static create(promptSettings, owner = null) {
+        const suffix = owner === null ? '' : `--${owner}`;
+        const rootElement = $('#stepthink_prompt_list' + suffix);
 
-        return function () {
-            list.addSetting();
+        const result = new ThinkingPromptList(
+            rootElement,
+            new ThinkingPromptSettings(promptSettings, owner)
+        );
+        rootElement.addClass('ui-sortable');
+        rootElement.sortable({
+            delay: getSortableDelay(),
+            handle: '.drag-handle',
+            tolerance: 'pointer',
+            update: result.onPromptReorder(),
+        });
+        $('#stepthink_prompt_list_add' + suffix).on('click', result.onPromptItemAdd());
+
+        return result;
+    }
+
+    /**
+     * @return {function(): void}
+     */
+    onPromptReorder() {
+        return () => {
+            const newOrderIds = this.#rootElement.sortable('toArray').map(
+                elementId => parseInt(elementId.replace(/.*--(\d+)$/, '$1'))
+            );
+
+            this.#promptSettings.reorder(newOrderIds);
+
             saveSettingsDebounced();
         };
     }
 
     /**
-     * @param {ThinkingPromptSettings} promptSettings
      * @return {(function(): void)}
      */
-    static onPromptItemInput(promptSettings) {
-        return function (event) {
+    onPromptItemAdd() {
+        return () => {
+            this.#addSetting();
+            saveSettingsDebounced();
+        };
+    }
+
+    /**
+     * @return {(function(): void)}
+     */
+    onPromptItemInput() {
+        return (event) => {
             const id = Number(event.target.getAttribute('data-id'));
             const value = event.target.value;
 
-            promptSettings.updatePrompt(id, value);
+            this.#promptSettings.updatePrompt(id, value);
 
             saveSettingsDebounced();
         };
     }
 
-
     /**
-     * @param {ThinkingPromptSettings} promptSettings
      * @return {(function(): void)}
      */
-    static onPromptItemEnable(promptSettings) {
-        return function (event) {
+    onPromptItemEnable() {
+        return (event) => {
             const id = Number(event.target.getAttribute('data-id'));
             const value = event.target.checked;
 
-            promptSettings.updateIsEnabled(id, value);
+            this.#promptSettings.updateIsEnabled(id, value);
 
             saveSettingsDebounced();
         };
     }
 
     /**
-     * @param {ThinkingPromptSettings} promptSettings
      * @return {(function(): void)}
      */
-    static onPromptItemRename(promptSettings) {
-        return function (event) {
+    onPromptItemRename() {
+        return (event) => {
             const id = Number(event.target.getAttribute('data-id'));
             const value = event.target.value;
 
-            promptSettings.updateName(id, value);
+            this.#promptSettings.updateName(id, value);
 
             saveSettingsDebounced();
         };
     }
 
     /**
-     * @param {ThinkingPromptSettings} promptSettings
      * @return {(function(): void)}
      */
-    static onPromptItemRemove(promptSettings) {
-        return function (event) {
+    onPromptItemRemove() {
+        return (event) => {
             const id = Number(event.target.getAttribute('data-id'));
 
-            $(`#stepthink_prompt_item--${promptSettings?.owner}--${id}`).remove();
-            promptSettings.remove(id);
+            $(`#stepthink_prompt_item--${this.#promptSettings?.owner}--${id}`).remove();
+            this.#promptSettings.remove(id);
 
             saveSettingsDebounced();
         };
+    }
+
+    /**
+     * @return {void}
+     */
+    renderAll() {
+        for (const prompt of this.#promptSettings) {
+            this.#render(prompt.id);
+        }
     }
 
     /**
@@ -872,16 +920,16 @@ class ThinkingPromptList {
      * @param {boolean} isEnabled
      * @return {void}
      */
-    addSetting(name = '', prompt = '', isEnabled = true) {
+    #addSetting(name = '', prompt = '', isEnabled = true) {
         const id = this.#promptSettings.push(name, prompt, isEnabled);
-        this.render(id);
+        this.#render(id);
     }
 
     /**
      * @param {number} id
      * @return {void}
      */
-    render(id) {
+    #render(id) {
         const mainContainer = this.#renderMainColumnContainer(id);
 
         mainContainer.append(
@@ -936,7 +984,7 @@ class ThinkingPromptList {
         textArea.classList.add('text_pole', 'textarea_compact');
         textArea.value = currentSetting.prompt;
 
-        textArea.addEventListener('input', ThinkingPromptList.onPromptItemInput(this.#promptSettings));
+        textArea.addEventListener('input', this.onPromptItemInput());
 
         container.append(textArea);
 
@@ -951,7 +999,14 @@ class ThinkingPromptList {
         const currentSetting = this.#promptSettings.getSettingBy(id);
 
         const container = document.createElement('div');
-        container.classList.add('flex-container', 'justifySpaceBetween', 'alignItemsCenter', 'flexFlowRow', 'stepthink_mode_embedded');
+        container.classList.add('flex-container', 'alignItemsCenter', 'flexFlowRow');
+
+        const handle = document.createElement('span');
+        handle.classList.add('drag-handle', 'ui-sortable-handle');
+        handle.innerText = '☰';
+
+        const nameContainer = document.createElement('div');
+        nameContainer.classList.add('flex-container', 'alignItemsCenter', 'width100p', 'flexFlowRow', 'stepthink_mode_embedded');
 
         const label = document.createElement('label');
         label.setAttribute('title', 'A name that will be used as {{prompt_name}} in the thoughts injection template');
@@ -962,11 +1017,17 @@ class ThinkingPromptList {
         name.classList.add('text_pole', 'textarea_compact');
         name.value = currentSetting.name;
 
-        name.addEventListener('input', ThinkingPromptList.onPromptItemRename(this.#promptSettings));
+        name.addEventListener('input', this.onPromptItemRename());
 
-        container.append(label, name);
+        nameContainer.append(label, name);
+
+        const idLabel = document.createElement('span');
+        idLabel.classList.add("widthFitContent");
+        idLabel.innerText = 'ID: ' + String(id);
+
+        container.append(handle, nameContainer, idLabel);
         if (settings.mode !== 'embedded') {
-            container.style.display = 'none';
+            nameContainer.style.display = 'none';
         }
 
         return container;
@@ -989,32 +1050,16 @@ class ThinkingPromptList {
         if (currentSetting.is_enabled !== false) {
             isEnabledButton.setAttribute('checked', 'checked');
         }
-        isEnabledButton.addEventListener('input', ThinkingPromptList.onPromptItemEnable(this.#promptSettings));
+        isEnabledButton.addEventListener('input', this.onPromptItemEnable());
 
         const removeButton = document.createElement('div');
         removeButton.setAttribute('data-id', String(id));
         removeButton.setAttribute('title', 'Remove prompt');
         removeButton.classList.add('menu_button', 'menu_button_icon', 'fa-solid', 'fa-trash', 'redWarningBG');
-        removeButton.addEventListener('click', ThinkingPromptList.onPromptItemRemove(this.#promptSettings));
+        removeButton.addEventListener('click', this.onPromptItemRemove());
 
         buttonsContainer.append(isEnabledButton, removeButton);
 
         return buttonsContainer;
     }
-}
-
-/**
- * @param {number} id
- * @param {JQuery<HTMLDivElement>|ParentNode} promptElement
- * @param {ThinkingPrompt[]} promptsSettings
- * @param {?string} owner
- * @return {void}
- */
-function renderThinkingPromptAt(id, promptElement, promptsSettings, owner = null) {
-    const list = new ThinkingPromptList(
-        promptElement,
-        new ThinkingPromptSettings(promptsSettings, owner),
-    );
-
-    list.render(id);
 }

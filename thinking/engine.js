@@ -149,6 +149,9 @@ async function prepareGenerationPrompt(type) {
     if (getContext().groupId && !is_group_generating) {
         return;
     }
+    if (!isCharacterSelected()) {
+        return;
+    }
 
     await currentGenerationPlan.prepareGenerationPrompt(type);
 }
@@ -178,7 +181,7 @@ async function stopChatThinking() {
  * @return {Promise<void>}
  */
 async function runChatThinking(type) {
-    if (!isExtensionEnabled() || !isGenerationTypeAllowed(type) || isThinking) {
+    if (!isExtensionEnabled() || !isGenerationTypeAllowed(type) || !isCharacterSelected() || isThinking) {
         return;
     }
     if (isThinkingSkipped(chatThinkingSettings.thinking_prompt_ids)) {
@@ -463,6 +466,19 @@ function isGenerationTypeAllowed(type) {
         if (type) {
             return false;
         }
+    }
+
+    return true;
+}
+
+/**
+ * @return {boolean}
+ */
+function isCharacterSelected() {
+    const context = getContext();
+    if (Number.isNaN(parseInt(context.characterId))) {
+        console.log('[Stepped Thinking] No character selected for thoughts generation', context.characterId);
+        return false;
     }
 
     return true;
