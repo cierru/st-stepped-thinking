@@ -7,6 +7,7 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import {
     deleteHiddenThoughts,
+    findChatCharacterIdByName,
     registerGenerationEventListeners,
     runNewBoundThoughtsGeneration,
 } from './thinking/engine.js';
@@ -37,14 +38,11 @@ async function runThinkingCommand(input, name = '') {
     const context = getContext();
 
     // TODO: implement a popup to select a character
-    if (!name && Number.isNaN(parseInt(context. characterId))) {
+    if (!name && Number.isNaN(parseInt(context.characterId))) {
         throw new Error('Unknown character to generate thoughts. Please, specify one with passing the name argument');
     }
     if (name) {
-        const characterId = context.characters.findIndex(character => character.name === name);
-        if (characterId === -1) {
-            throw new Error('A character with the specified name is not found');
-        }
+        let characterId = findChatCharacterIdByName(name);
 
         setCharacterId(characterId);
         setCharacterName(name);

@@ -10,8 +10,9 @@ import {
 import { generationCaptured, releaseGeneration } from '../interconnection.js';
 import { settings } from '../settings/settings.js';
 import { is_group_generating } from '../../../../group-chats.js';
-import { EmbeddedThoughtsRefreshPlan, findMode, registerThinkingModeListeners } from './mode.js';
+import { findMode, registerThinkingModeListeners } from './mode.js';
 import { registerPromptAdjustmentListeners } from './prompt_adjustment.js';
+import { findChar, getCharIndex } from '../../../../utils.js';
 
 /**
  * @type {{is_enabled: ?boolean, thinking_prompt_ids: ?number[]}}
@@ -87,7 +88,7 @@ async function onHideClick() {
 
     const context = getContext();
     const characterName = context.chat[messageId].name;
-    await currentGenerationPlan.hideThoughts(context.characters.findIndex(character => character.name === characterName));
+    await currentGenerationPlan.hideThoughts(findChatCharacterIdByName(characterName));
 }
 
 /**
@@ -314,6 +315,30 @@ export function switchMode(name) {
 }
 
 /**
+ * @param {string} characterName
+ * @return {number}
+ */
+export function findChatCharacterIdByName(characterName) {
+    return getCharIndex(findChatCharacterByName(characterName));
+}
+
+/**
+ * @param {string} characterName
+ * @return {v1CharData}
+ */
+export function findChatCharacterByName(characterName) {
+    return findChar({ name: characterName, allowAvatar: false });
+}
+
+/**
+ * @param {string} characterName
+ * @return {v1CharData}
+ */
+export function findChatCharacterByNameQuiet(characterName) {
+    return findChar({ name: characterName, allowAvatar: false, quiet: true });
+}
+
+/**
  * @param {?number} characterId
  * @return {?CharacterThinkingSettings}
  */
@@ -325,8 +350,8 @@ export function getCharacterSettings(characterId = null) {
         return null;
     }
 
-    const characterName = context.characters[targetCharacterId].name;
-    return settings.character_settings?.find(setting => setting.name === characterName && setting.is_setting_enabled);
+    const characterAvatar = context.characters[targetCharacterId].avatar;
+    return settings.character_settings?.find(setting => setting.avatar === characterAvatar && setting.is_setting_enabled);
 }
 
 /**
@@ -413,15 +438,30 @@ async function generateThoughts() {
 async function generateCharacterThought(prompt) {
     const context = getContext();
 
-    let result = await context.generateQuietPrompt(
-        prompt,
-        false,
-        settings.is_wian_skipped,
-        null,
-        null,
-        settings.max_response_length,
-        currentGenerationPlan.getCharacterId()
-    );
+    let result, isLengthAboveMinimum = true;
+    do {
+        result = await context.generateQuietPrompt(
+            prompt,
+            false,
+            settings.is_wian_skipped,
+            null,
+            null,
+            settings.max_response_length,
+            currentGenerationPlan.getCharacterId(),
+        );
+
+        isLengthAboveMinimum = result.length >= settings.min_thought_length;
+        if (!isLengthAboveMinimum) {
+            if (settings.is_thinking_popups_enabled) {
+                toastr.warning(
+                    `The response length is below the threshold: ${result.length} < ${settings.min_thought_length}. Repeating generation...`,
+                    'Stepped Thinking',
+                    { timeOut: 3000 }
+                );
+            }
+            await generationDelay();
+        }
+    } while (!isLengthAboveMinimum);
 
     if (settings.regexp_to_sanitize.trim() !== '') {
         const regexp = context.substituteParams(settings.regexp_to_sanitize);

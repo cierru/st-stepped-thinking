@@ -13,7 +13,12 @@ import {
     setExtensionPrompt,
     updateMessageBlock,
 } from '../../../../../script.js';
-import { getCharacterSettings, hideThoughts, runRefreshGeneratedThoughts } from './engine.js';
+import {
+    findChatCharacterIdByName,
+    getCharacterSettings,
+    hideThoughts,
+    runRefreshGeneratedThoughts,
+} from './engine.js';
 import { getContext } from '../../../../extensions.js';
 import { settings, thoughtPrefixInjectionModes } from '../settings/settings.js';
 import { hideChatMessageRange } from '../../../../chats.js';
@@ -1049,7 +1054,7 @@ export class EmbeddedThoughtsGenerationPlan {
         for (let i = lastMessageIndex, revealedThoughtsCount = []; i >= 0 && (lastMessageIndex - i < settings.max_hiding_thoughts_lookup); i--) {
             const message = context.chat[i];
 
-            revealedThoughtsCount[message.name] ??= this._hasThoughtsCountOffset(currentCharacter.name, message.name) ? 1 : 0;
+            revealedThoughtsCount[message.name] ??= this._getThoughtsCountOffset(currentCharacter.name, message.name);
             revealedThoughtsCount[message.name] += this.#revealThought(
                 context.chat[i],
                 revealedThoughtsCount[message.name],
@@ -1229,10 +1234,21 @@ export class EmbeddedThoughtsGenerationPlan {
     /**
      * @param {string} currentCharacterName
      * @param {string} characterName
-     * @return {boolean}
+     * @return {number}
      */
-    _hasThoughtsCountOffset(currentCharacterName, characterName) {
-        return currentCharacterName === characterName && !this._storage.isEmpty()
+    _getThoughtsCountOffset(currentCharacterName, characterName) {
+        if (currentCharacterName === characterName) {
+            if (!this._storage.isEmpty()) {
+                return 1;
+            }
+
+            if (!settings.is_always_include_ongoing_thoughts) {
+                const targetMessageId = this._storage.getTargetMessageId();
+                return targetMessageId === null || getContext().chat[targetMessageId] ? 0 : 1;
+            }
+        }
+
+        return 0;
     }
 
     /**
@@ -1288,7 +1304,7 @@ export class EmbeddedThoughtsRefreshPlan extends EmbeddedThoughtsGenerationPlan 
         return new EmbeddedThoughtsRefreshPlan(
             position,
             [thoughtsGeneration.thoughts[position.thoughtItemId].thinkingPrompt],
-            context.characters.findIndex(character => character.name === characterName),
+            findChatCharacterIdByName(characterName),
             EmbeddedThoughtsUI.getInstance(),
             EmbeddedThoughtsPromptInjector.getInstance(),
             ThoughtsGenerationMetadataStorage.getInstanceWithGeneration(
@@ -1313,16 +1329,6 @@ export class EmbeddedThoughtsRefreshPlan extends EmbeddedThoughtsGenerationPlan 
     }
 
     /**
-     * @return {ThinkingPrompt[]}
-     */
-    getThinkingPrompts() {
-        const thoughtsGeneration = this._storage.getThoughtsGeneration();
-        const thought = thoughtsGeneration.thoughts.find(thought => thought.id === this._position.thoughtItemId);
-
-        return [thought.thinkingPrompt];
-    }
-
-    /**
      * @var {?number}
      */
     _getMaxThoughtItemId() {
@@ -1332,10 +1338,10 @@ export class EmbeddedThoughtsRefreshPlan extends EmbeddedThoughtsGenerationPlan 
     /**
      * @param {string} currentCharacterName
      * @param {string} characterName
-     * @return {boolean}
+     * @return {number}
      */
-    _hasThoughtsCountOffset(currentCharacterName, characterName) {
-        return false;
+    _getThoughtsCountOffset(currentCharacterName, characterName) {
+        return 0;
     }
 
     /**
@@ -1394,10 +1400,10 @@ export class EmbeddedThoughtsDefaultPlan extends EmbeddedThoughtsGenerationPlan 
     /**
      * @param {string} currentCharacterName
      * @param {string} characterName
-     * @return {boolean}
+     * @return {number}
      */
-    _hasThoughtsCountOffset(currentCharacterName, characterName) {
-        return false;
+    _getThoughtsCountOffset(currentCharacterName, characterName) {
+        return 0;
     }
 
     /**
@@ -1547,8 +1553,10 @@ export class EmbeddedThoughtsPromptInjector {
      * @return {void}
      */
     purge() {
+        const promptNamePrefix = this.#getPromptNamePrefix();
+
         for (const key of Object.keys(extension_prompts)) {
-            if (key.startsWith(this.EXTENSION_PROMPT_PREFIX)) {
+            if (key.startsWith(promptNamePrefix)) {
                 delete extension_prompts[key];
             }
         }
@@ -1573,13 +1581,24 @@ export class EmbeddedThoughtsPromptInjector {
         );
 
         setExtensionPrompt(
-            `${this.EXTENSION_PROMPT_PREFIX}_${thoughtsId}`,
+            `${this.#getPromptNamePrefix()}_${thoughtsId}`,
             await adjustPromptForCharacter(thoughtPrompt, characterName),
             extension_prompt_types.IN_CHAT,
             depth,
             true,
             injectionRole,
         );
+    }
+
+    /**
+     * @return {string}
+     */
+    #getPromptNamePrefix() {
+        if (settings.thoughts_prompts_order_prefix) {
+            return `${settings.thoughts_prompts_order_prefix}_${this.EXTENSION_PROMPT_PREFIX}`;
+        }
+
+        return this.EXTENSION_PROMPT_PREFIX;
     }
 }
 
@@ -1751,8 +1770,12 @@ export class EmbeddedThoughtsUI {
         thoughtsTemplate.classList.add('intermediate_thoughts');
 
         const lastMessage = $('#chat .mes').last();
-        lastMessage.removeClass('last_mes');
-        lastMessage.after(thoughtsTemplate);
+        if (!lastMessage || lastMessage.length === 0) {
+            $('#chat').append(thoughtsTemplate);
+        } else {
+            lastMessage.removeClass('last_mes');
+            lastMessage.after(thoughtsTemplate);
+        }
     }
 
     /**

@@ -75,6 +75,16 @@
                 </div>
             </div>
 
+            <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                <label class="checkbox_label expander" for="stepthink_is_always_include_ongoing_thoughts"
+                       title='Whether the thought that is currently being generated will always be included in the prompt without increasing the counter set by the "Number of last thoughts included in prompt" setting'>
+                    <input id="stepthink_is_always_include_ongoing_thoughts" type="checkbox"/>
+                    Always include ongoing thoughts
+                </label>
+            </div>
+
+            <hr class="stepthink_mode_embedded"/>
+
             <div class="flex-container justifySpaceBetween alignItemsCenter">
                 <label for="stepthink_character_settings"
                        title="You can set up individual settings for selected characters. Click on a character’s name after the character is added to the list to adjust its settings">
@@ -112,9 +122,19 @@
 
                 <div class="flex-container marginTopBot5">
                     <div class="flex-container flex1"
-                         title="This setting restricts the response length for thinking prompts (in tokens). Leave it empty or set to 0 to disable">
+                         title="The minimum length of a generated thought in characters. If a generated thought is less than or equal to the specified length, another generation attempt will be triggered, and so on, until the length exceeds the specified value">
+                        <label for="stepthink_min_thought_length">
+                            Minimum thought length (characters):
+                        </label>
+                        <input type="number" id="stepthink_min_thought_length" class="text_pole" min="0"/>
+                    </div>
+                </div>
+
+                <div class="flex-container marginTopBot5">
+                    <div class="flex-container flex1"
+                         title="This setting restricts the response length for generated thoughts. The generation will stop when the thought reaches the specified length. Set to 0 to disable.">
                         <label for="stepthink_max_response_length">
-                            Max response length for a thinking prompt:
+                            Maximum thought length (tokens):
                         </label>
                         <input type="number" id="stepthink_max_response_length" class="text_pole" min="0"/>
                     </div>
@@ -132,7 +152,7 @@
 
                 <div class="flex-container marginTopBot5">
                     <div class="flex-container flex1"
-                         title="This number defines the maximum messages inspected, starting from the last one, to determine which thoughts will be hidden">
+                         title="This number defines the maximum messages inspected, starting from the last one, to determine for which of them thoughts should be hidden">
                         <label for="stepthink_max_hiding_thoughts_lookup">
                             Maximum messages to inspect for hiding:
                         </label>
@@ -212,6 +232,14 @@
                         </label>
                         <textarea id="stepthink_thought_injection_separator" class="text_pole textarea_compact" rows="2"></textarea>
                     </div>
+                </div>
+
+                <div class="flex-container marginTopBot5 stepthink_mode_embedded">
+                    <label for="stepthink_thoughts_prompts_order_prefix"
+                           title='This string defines the position of injected thought prompts among other extension prompts. The prompts are sorted alphabetically: setting it to "0" places the prompt first, while "Z" places it last. Leave it empty if you are fine with the default order of extension prompts'>
+                        Extension injection order prefix:
+                    </label>
+                    <input type="text" id="stepthink_thoughts_prompts_order_prefix" class="text_pole textarea_compact"/>
                 </div>
                 <!-- embedded thoughts -->
 

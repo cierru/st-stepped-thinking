@@ -7,7 +7,11 @@ import {
     saveSettingsDebounced,
 } from '../../../../../script.js';
 import { getSortableDelay, select2ChoiceClickSubscribe } from '../../../../utils.js';
-import { getCharacterSettings, switchMode } from '../thinking/engine.js';
+import {
+    findChatCharacterByNameQuiet,
+    getCharacterSettings,
+    switchMode,
+} from '../thinking/engine.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../../extensions.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { loadDefaultModeDeclarations, modesIterator } from '../thinking/mode.js';
@@ -36,6 +40,8 @@ export function registerSettingsListeners() {
     registerCommonSettingListeners();
     registerCharacterSettingsListeners();
     registerThinkingPromptListeners();
+
+    eventSource.on(event_types.APP_READY, migrateNamesToAvatarsInV3CharacterSettings);
 }
 
 /**
@@ -77,6 +83,27 @@ function handleUpgradingToV3Installations() {
 }
 
 /**
+ * @return {void}
+ */
+function migrateNamesToAvatarsInV3CharacterSettings() {
+    let hasChanges = false;
+
+    settings.character_settings.forEach(setting => {
+        if (!setting.avatar) {
+            const character = findChatCharacterByNameQuiet(setting.name);
+            setting.avatar = character.avatar;
+            delete setting.name;
+
+            hasChanges = true;
+        }
+    });
+
+    if (hasChanges) {
+        saveSettingsDebounced();
+    }
+}
+
+/**
  * @param {object} settings
  */
 function setDefaultsForUndefined(settings) {
@@ -106,9 +133,11 @@ const defaultCommonSettings = {
     'is_thinking_popups_enabled': true,
     'is_thoughts_spoiler_open': false,
     'is_thoughts_as_system': false,
+    'is_always_include_ongoing_thoughts': true,
     'mode': 'embedded',
     'max_thoughts_in_prompt': 2,
     'generation_delay': 0.0,
+    'min_thought_length': 0,
     'max_response_length': 0,
     'regexp_to_sanitize': '(<\\/?details\\s?(type="executing")?>)|(<\\/?summary>)|(Thinking ({{char}}) 💭)|(```)|(<\\/?[\\w\\s]*>)',
     'max_hiding_thoughts_lookup': 1000,
@@ -127,6 +156,7 @@ const defaultCommonSettings = {
 
     // embedded
     'sending_thoughts_role': extension_prompt_roles.SYSTEM,
+    'thoughts_prompts_order_prefix': '',
     'thoughts_block_title': '{{char}}\'s Thoughts',
     'thoughts_prefix_injection_mode': thoughtPrefixInjectionModes.FROM_INSTRUCT,
     'thoughts_injection_prefix': '{{char}}\'s Thoughts: ',
@@ -149,6 +179,7 @@ function loadCommonSettings() {
     $('#stepthink_system_character_name_template').val(settings.system_character_name_template);
     $('#stepthink_thoughts_message_template').val(settings.thoughts_message_template);
     $('#stepthink_max_thoughts_in_prompt').val(settings.max_thoughts_in_prompt);
+    $('#stepthink_min_thought_length').val(settings.min_thought_length);
     $('#stepthink_max_response_length').val(settings.max_response_length);
     $('#stepthink_generation_delay').val(settings.generation_delay);
     $('#stepthink_max_hiding_thoughts_lookup').val(settings.max_hiding_thoughts_lookup);
@@ -157,8 +188,10 @@ function loadCommonSettings() {
     $('#stepthink_is_thoughts_spoiler_open').prop('checked', settings.is_thoughts_spoiler_open).trigger('input');
     $('#stepthink_is_thinking_popups_enabled').prop('checked', settings.is_thinking_popups_enabled).trigger('input');
     $('#stepthink_is_thoughts_as_system').prop('checked', settings.is_thoughts_as_system).trigger('input');
+    $('#stepthink_is_always_include_ongoing_thoughts').prop('checked', settings.is_always_include_ongoing_thoughts).trigger('input');
 
     $(`#stepthink_sending_thoughts_role option[value="${settings.sending_thoughts_role}"]`).prop('selected', 'true');
+    $('#stepthink_thoughts_prompts_order_prefix').val(settings.thoughts_prompts_order_prefix);
     $('#stepthink_thoughts_block_title').val(settings.thoughts_block_title);
     $(`#stepthink_thoughts_prefix_injection_mode option[value="${settings.thoughts_prefix_injection_mode}"]`).prop('selected', 'true');
     $('#stepthink_thoughts_injection_prefix').val(settings.thoughts_injection_prefix);
@@ -186,16 +219,19 @@ function registerCommonSettingListeners() {
     $('#stepthink_is_thoughts_spoiler_open').on('input', onCheckboxInput('is_thoughts_spoiler_open'));
     $('#stepthink_is_thinking_popups_enabled').on('input', onCheckboxInput('is_thinking_popups_enabled'));
     $('#stepthink_is_thoughts_as_system').on('input', onCheckboxInput('is_thoughts_as_system'));
+    $('#stepthink_is_always_include_ongoing_thoughts').on('input', onCheckboxInput('is_always_include_ongoing_thoughts'));
     $('#stepthink_regexp_to_sanitize').on('input', onTextareaInput('regexp_to_sanitize'));
     $('#stepthink_system_character_name_template').on('input', onTextareaInput('system_character_name_template'));
     $('#stepthink_thoughts_message_template').on('input', onTextareaInput('thoughts_message_template'));
     $('#stepthink_max_thoughts_in_prompt').on('input', onIntegerTextareaInput('max_thoughts_in_prompt'));
+    $('#stepthink_min_thought_length').on('input', onIntegerTextareaInput('min_thought_length'));
     $('#stepthink_max_response_length').on('input', onIntegerTextareaInput('max_response_length'));
     $('#stepthink_generation_delay').on('input', onGenerationDelayInput);
     $('#stepthink_max_hiding_thoughts_lookup').on('input', onIntegerTextareaInput('max_hiding_thoughts_lookup'));
 
     $('#stepthink_sending_thoughts_role').on('input', onIntegerTextareaInput('sending_thoughts_role'));
     $('#stepthink_thoughts_block_title').on('input', onTextareaInput('thoughts_block_title'));
+    $('#stepthink_thoughts_prompts_order_prefix').on('input', onTextareaInput('thoughts_prompts_order_prefix'));
     $('#stepthink_thoughts_prefix_injection_mode').on('input', onTextareaInput('thoughts_prefix_injection_mode'));
     $('#stepthink_thoughts_injection_prefix').on('input', onTextareaInput('thoughts_injection_prefix'));
     $('#stepthink_general_injection_template').on('input', onTextareaInput('general_injection_template'));
@@ -316,7 +352,7 @@ function onTextareaInput(...settingNames) {
  */
 function onGenerationDelayInput() {
     const value = Number($(this).val());
-    if (Number.isFinite(value) || value < 0.0) {
+    if (!Number.isFinite(value) || value < 0.0) {
         return;
     }
 
@@ -355,7 +391,7 @@ function activateThinkingMode(mode) {
  * A character's settings are identified by their name, because there are no reliable long-term ids for them in SillyTavern except for avatars
  *
  * @typedef {object} CharacterThinkingSettings
- * @property {string} name - the name of the character
+ * @property {string} avatar - the name of the character
  * @property {boolean} is_setting_enabled - whether this set of options will be applied or not
  * @property {boolean} is_thinking_enabled - whether the thinking process will be run for the character or not
  * @property {boolean} is_mind_reader - whether the character can read the other characters' thoughts or not
@@ -448,9 +484,9 @@ function toggleCharacterMenuButtonHighlight(characterMenuButton) {
  */
 async function onCharacterSettingMenuButtonClick() {
     const context = getContext();
-    const characterName = context.characters[context.characterId].name;
+    const characterAvatar = context.characters[context.characterId].avatar;
 
-    await showCharacterSettingsPopup(characterName);
+    await showCharacterSettingsPopup(characterAvatar);
 }
 
 /**
@@ -458,20 +494,21 @@ async function onCharacterSettingMenuButtonClick() {
  * @return {Promise<void>}
  */
 async function onCharacterSettingClicked(event) {
-    const characterName = event.textContent;
-    await showCharacterSettingsPopup(characterName);
+    const characterAvatar = getAvatarByOptionName(event.textContent);
+
+    await showCharacterSettingsPopup(characterAvatar);
 }
 
 /**
- * @param {string} characterName
+ * @param {string} characterAvatar
  * @return {(function(*): void)}
  */
-function resolveCharacterSelectionPopup(characterName) {
+function resolveCharacterSelectionPopup(characterAvatar) {
     return (is_setting_enabled) => {
         if (is_setting_enabled === 1) {
-            selectCharacter(characterName);
+            selectCharacter(characterAvatar);
         } else {
-            unselectCharacter(characterName);
+            unselectCharacter(characterAvatar);
         }
 
         $('#stepthink_load_characters').trigger('click');
@@ -480,12 +517,15 @@ function resolveCharacterSelectionPopup(characterName) {
 
 /**
  *
- * @param {string} characterName
+ * @param {string} characterAvatar
  * @return {Promise<void>}
  */
-async function showCharacterSettingsPopup(characterName) {
+async function showCharacterSettingsPopup(characterAvatar) {
+    const context = getContext();
+
+    const characterName = context.characters.find(character => character.avatar === characterAvatar).name;
     const shortName = characterName.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const setting = selectCharacter(characterName);
+    const setting = selectCharacter(characterAvatar);
 
     const template = await renderExtensionTemplateAsync(
         `third-party/${extensionName}/settings`,
@@ -497,7 +537,7 @@ async function showCharacterSettingsPopup(characterName) {
     );
 
     const popup = callGenericPopup(template, POPUP_TYPE.TEXT, '', { okButton: 'Activate', cancelButton: 'Deactivate' });
-    popup.then(resolveCharacterSelectionPopup(characterName));
+    popup.then(resolveCharacterSelectionPopup(characterAvatar));
 
     $(`#stepthink_character_settings--${shortName}`).ready(onCharacterSettingReady(shortName, setting));
 
@@ -524,23 +564,23 @@ function onCharacterSettingReady(shortName, setting) {
  * @return {void}
  */
 async function onCharacterSelected(event) {
-    const characterName = event.params.data.id;
+    const characterAvatar = event.params.data.id;
 
-    selectCharacter(characterName);
-    await showCharacterSettingsPopup(characterName);
+    selectCharacter(characterAvatar);
+    await showCharacterSettingsPopup(characterAvatar);
 }
 
 /**
- * @param {string} characterName
+ * @param {string} characterAvatar
  * @return {CharacterThinkingSettings}
  */
-function selectCharacter(characterName) {
+function selectCharacter(characterAvatar) {
     settings.character_settings ??= [];
 
-    let setting = settings.character_settings.find(setting => setting.name === characterName);
+    let setting = settings.character_settings.find(setting => setting.avatar === characterAvatar);
     if (!setting) {
         setting = {
-            name: characterName,
+            avatar: characterAvatar,
             is_setting_enabled: true,
             is_thinking_enabled: true,
             is_mind_reader: false,
@@ -562,16 +602,16 @@ function selectCharacter(characterName) {
  * @return {void}
  */
 function onCharacterUnselected(event) {
-    const characterName = event.params.data.id;
-    unselectCharacter(characterName);
+    const characterAvatar = event.params.data.id;
+    unselectCharacter(characterAvatar);
 }
 
 /**
- * @param {string} characterName
+ * @param {string} characterAvatar
  * @return {void}
  */
-function unselectCharacter(characterName) {
-    const setting = settings.character_settings.find(setting => setting.name === characterName);
+function unselectCharacter(characterAvatar) {
+    const setting = settings.character_settings.find(setting => setting.avatar === characterAvatar);
     setting.is_setting_enabled = false;
 
     toggleCharacterMenuButtonHighlight(document.getElementById('stepthink_character_setting_menu_button'));
@@ -587,15 +627,47 @@ function onLoadCharacters() {
 
     getContext().characters.forEach(character => {
         const characterOption = document.createElement('option');
-        characterOption.setAttribute('value', character.name);
+        characterOption.setAttribute('value', character.avatar);
 
-        if (settings.character_settings?.find(setting => setting.name === character.name && setting.is_setting_enabled)) {
+        if (settings.character_settings?.find(setting => setting.avatar === character.avatar && setting.is_setting_enabled)) {
             characterOption.selected = true;
         }
-        characterOption.textContent = character.name;
+        characterOption.textContent = createOptionName(character);
 
         characterSettings.append(characterOption);
     });
+}
+
+/**
+ * @param {v1CharData} character
+ * @return {string}
+ */
+function createOptionName(character) {
+    if (isSeveralCharactersWithTheSameName(character.name)) {
+        return `${character.name} (${character.avatar})`;
+    }
+
+    return character.name;
+}
+
+/**
+ * @param {string} optionName
+ * @return {string}
+ */
+function getAvatarByOptionName(optionName) {
+    const options = document.querySelectorAll('#stepthink_character_settings option');
+    const clickedOption = Array.from(options).find(option => option.textContent === optionName);
+
+    return clickedOption.value;
+}
+
+/**
+ * @param {string} name
+ * @return {boolean}
+ */
+function isSeveralCharactersWithTheSameName(name) {
+    const context = getContext();
+    return context.characters.filter(character => character.name === name).length > 1;
 }
 
 // settings - prompts

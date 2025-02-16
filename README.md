@@ -90,7 +90,6 @@ Settings` block.
 This command is designed to manually trigger the thought generation process. It accepts two optional arguments:
 
 1. `prompt_ids` – the comma-separated IDs of thinking prompts that will be used for generation.
-
 2. The name of the character for whom the process will be launched, which is particularly useful for group chats.
 
 **Examples:**
