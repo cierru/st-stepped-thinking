@@ -503,7 +503,7 @@ function isGenerationTypeAllowed(type) {
             return false;
         }
     } else {
-        if (type) {
+        if (type !== 'normal') {
             return false;
         }
     }
