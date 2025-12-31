@@ -179,9 +179,15 @@ async function stopChatThinking() {
 
 /**
  * @param {string} type
+ * @param {object} options
+ * @param {boolean} isDryRun
  * @return {Promise<void>}
  */
-async function runChatThinking(type) {
+async function runChatThinking(type, options, isDryRun) {
+    if (isDryRun) {
+        return;
+    }
+
     if (!isExtensionEnabled() || !isGenerationTypeAllowed(type) || !isCharacterSelected() || isThinking) {
         return;
     }
@@ -440,15 +446,12 @@ async function generateCharacterThought(prompt) {
 
     let result, isLengthAboveMinimum = true;
     do {
-        result = await context.generateQuietPrompt(
-            prompt,
-            false,
-            settings.is_wian_skipped,
-            null,
-            null,
-            settings.max_response_length,
-            currentGenerationPlan.getCharacterId(),
-        );
+        result = await context.generateQuietPrompt({
+            quietPrompt: prompt,
+            skipWIAN: settings.is_wian_skipped,
+            responseLength: settings.max_response_length,
+            forceChId: currentGenerationPlan.getCharacterId(),
+        });
 
         isLengthAboveMinimum = result.length >= settings.min_thought_length;
         if (!isLengthAboveMinimum) {

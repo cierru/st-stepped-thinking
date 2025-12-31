@@ -128,7 +128,7 @@ experiences, you are most welcome to do so in one of the following ways:
 
 ## Prerequisites
 
-The extension has been tested on SillyTavern 1.12.11+ and may not work with older versions.
+The extension has been tested on SillyTavern 1.15.0+ and may not work with older versions.
 
 ## Support and Contributions
 
