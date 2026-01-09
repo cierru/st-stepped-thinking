@@ -292,11 +292,15 @@ export async function runNewBoundThoughtsGeneration(textarea, targetPromptIds) {
         return;
     }
 
+    const characterId = typeof context.characterId === 'string'
+        ? Number(context.characterId)
+        : context.characterId;
+
     chatThinkingSettings = {
         is_enabled: true,
         thinking_prompt_ids: targetPromptIds,
     };
-    Generate(null, { force_chid: context.characterId })
+    Generate('normal', { force_chid: characterId })
         .finally(() => chatThinkingSettings = {
             is_enabled: null,
             thinking_prompt_ids: null,
